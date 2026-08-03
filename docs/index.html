@@ -74,8 +74,12 @@
 
   <section id="demo" style="border-top:0">
     <figure>
-      <video src="assets/mpc_lap.mp4" autoplay muted loop playsinline controls
-             poster="assets/Spielberg_trajectories.png"></video>
+      <video autoplay muted loop playsinline controls preload="metadata"
+             poster="assets/Spielberg_trajectories.png">
+        <source src="assets/mpc_lap.mp4" type="video/mp4" />
+        Your browser can't play embedded video —
+        <a href="assets/mpc_lap.mp4">download the clip</a>.
+      </video>
       <figcaption class="cap">One flying lap of the Spielberg (Red Bull Ring) circuit.
         Trail coloured by speed — yellow on the straights, green braking into the corners.
         Live speed &amp; lap timer overlaid.</figcaption>

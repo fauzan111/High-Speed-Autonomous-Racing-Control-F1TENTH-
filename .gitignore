@@ -1,0 +1,7 @@
+.venv/
+__pycache__/
+*.pyc
+# The F1TENTH gym is a large external dependency — cloned separately (see README).
+f1tenth_gym/
+# Keep the benchmark figures (results/*.png) so the README renders on GitHub.
+

@@ -1,0 +1,9 @@
+# Core simulation + solver stack for the racer project.
+# The F1TENTH gym itself is installed separately (editable) from ./f1tenth_gym:
+#     pip install -e ./f1tenth_gym
+# See README for the full setup.
+casadi>=3.7
+numpy>=1.24
+scipy>=1.10
+matplotlib>=3.7
+gymnasium>=0.29

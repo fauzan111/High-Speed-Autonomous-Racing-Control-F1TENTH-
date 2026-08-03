@@ -1,4 +1,4 @@
-# racer — High-Speed Autonomous Racing Control (F1TENTH)
+# Racer — High-Speed Autonomous Racing Control (F1TENTH)
 
 A simulated autonomous racing stack that drives a car around a track **at the
 limit of grip**, tracking a pre-optimized minimum-time racing line with Model

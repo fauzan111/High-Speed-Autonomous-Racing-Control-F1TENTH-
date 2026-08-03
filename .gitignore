@@ -5,3 +5,4 @@ __pycache__/
 f1tenth_gym/
 # Keep the benchmark figures (results/*.png) so the README renders on GitHub.
 
+results/*.mp4

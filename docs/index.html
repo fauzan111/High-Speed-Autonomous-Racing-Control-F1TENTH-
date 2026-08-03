@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>High-Speed Autonomous Racing Control — F1TENTH MPC</title>
+<meta name="description" content="A nonlinear Model Predictive Controller that drives a simulated race car at the limit of grip — 18% faster than a pure-pursuit baseline, within 5% of the theoretical optimal lap." />
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --line:#2a313c; --text:#e6edf3;
+    --muted:#9aa4b2; --accent:#39d353; --accent2:#58a6ff;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;background:var(--bg);color:var(--text);
+    font:16px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased}
+  .wrap{max-width:960px;margin:0 auto;padding:0 20px}
+  a{color:var(--accent2);text-decoration:none}
+  a:hover{text-decoration:underline}
+  header{padding:64px 0 28px;text-align:center}
+  .eyebrow{color:var(--accent);font-weight:700;letter-spacing:.14em;
+    text-transform:uppercase;font-size:12px}
+  h1{font-size:clamp(28px,5vw,44px);line-height:1.12;margin:14px 0 10px;letter-spacing:-.02em}
+  .sub{color:var(--muted);font-size:clamp(16px,2.4vw,19px);max-width:680px;margin:0 auto}
+  .cta{margin-top:26px;display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
+  .btn{display:inline-block;padding:10px 18px;border-radius:10px;font-weight:600;font-size:14px;
+    border:1px solid var(--line);color:var(--text)}
+  .btn.primary{background:var(--accent);color:#062b12;border-color:var(--accent)}
+  .btn.primary:hover{filter:brightness(1.07);text-decoration:none}
+  figure{margin:0}
+  video,img{width:100%;display:block;border-radius:14px;border:1px solid var(--line);background:#000}
+  .cap{color:var(--muted);font-size:13px;text-align:center;margin-top:10px}
+  section{padding:40px 0;border-top:1px solid var(--line)}
+  h2{font-size:22px;letter-spacing:-.01em;margin:0 0 6px}
+  .lead{color:var(--muted);margin:0 0 22px}
+  table{width:100%;border-collapse:collapse;font-size:15px;overflow:hidden;
+    border:1px solid var(--line);border-radius:12px}
+  th,td{padding:12px 14px;text-align:left;border-bottom:1px solid var(--line)}
+  th{color:var(--muted);font-weight:600;font-size:13px;text-transform:uppercase;letter-spacing:.04em}
+  tr:last-child td{border-bottom:0}
+  tbody tr.win{background:rgba(57,211,83,.08)}
+  .win td:first-child{color:var(--accent);font-weight:700}
+  .num{font-variant-numeric:tabular-nums;font-weight:600}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:20px}
+  .card h3{margin:0 0 8px;font-size:16px}
+  .card p{margin:0;color:var(--muted);font-size:14.5px}
+  .stat{display:flex;gap:26px;flex-wrap:wrap;justify-content:center;margin:6px 0 2px}
+  .stat div{text-align:center}
+  .stat b{display:block;font-size:30px;color:var(--accent);font-variant-numeric:tabular-nums}
+  .stat span{color:var(--muted);font-size:13px}
+  ul{padding-left:18px} li{margin:8px 0;color:var(--muted)}
+  li b{color:var(--text)}
+  code{background:#1f2530;padding:2px 6px;border-radius:5px;font-size:13px}
+  footer{padding:40px 0 70px;color:var(--muted);font-size:13px;text-align:center;border-top:1px solid var(--line)}
+  @media(max-width:640px){.grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="eyebrow">Autonomous Racing · Model Predictive Control</div>
+    <h1>Driving a race car at the limit of grip — in software.</h1>
+    <p class="sub">A nonlinear MPC controller that tracks the optimal racing line in the
+      F1TENTH simulator. <b>18% faster</b> than a tuned pure-pursuit baseline, and within
+      <b>5%</b> of the theoretical minimum-time lap.</p>
+    <div class="cta">
+      <a class="btn primary" href="#demo">Watch it lap ▶</a>
+      <a class="btn" id="repo-link" href="https://github.com/fauzan111/High-Speed-Autonomous-Racing-Control-F1TENTH-">View the code on GitHub</a>
+    </div>
+  </header>
+
+  <section id="demo" style="border-top:0">
+    <figure>
+      <video src="assets/mpc_lap.mp4" autoplay muted loop playsinline controls
+             poster="assets/Spielberg_trajectories.png"></video>
+      <figcaption class="cap">One flying lap of the Spielberg (Red Bull Ring) circuit.
+        Trail coloured by speed — yellow on the straights, green braking into the corners.
+        Live speed &amp; lap timer overlaid.</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <h2>Results</h2>
+    <p class="lead">Benchmarked on Spielberg (338 m lap). The MPC never leaves the racing line
+      by more than 20 cm, solving its optimisation in ~8 ms.</p>
+    <table>
+      <thead><tr><th>Controller</th><th>Lap time</th><th>Top speed</th><th>Max tracking error</th></tr></thead>
+      <tbody>
+        <tr><td>Ideal racing line (perfect tracking)</td><td class="num">45.05 s</td><td class="num">8.0 m/s</td><td>—</td></tr>
+        <tr><td>Pure Pursuit (geometric baseline)</td><td class="num">57.85 s</td><td class="num">6.4 m/s</td><td class="num">0.19 m</td></tr>
+        <tr class="win"><td>Nonlinear MPC</td><td class="num">47.22 s</td><td class="num">7.8 m/s</td><td class="num">0.20 m</td></tr>
+      </tbody>
+    </table>
+    <div class="stat" style="margin-top:26px">
+      <div><b>18.4%</b><span>faster than baseline</span></div>
+      <div><b>4.8%</b><span>off the ideal lap</span></div>
+      <div><b>~8 ms</b><span>per MPC solve</span></div>
+      <div><b>&lt;20 cm</b><span>tracking error</span></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>How it works</h2>
+    <p class="lead">Inspired by Politecnico di Milano's <b>PoliMOVE</b> program (Indy Autonomous
+      Challenge). At every tick the controller solves an optimal-control problem over a ~2.5 s
+      horizon: what steering + acceleration keeps the car on the racing line at its target speed?</p>
+    <div class="grid">
+      <div class="card"><h3>Vehicle model</h3><p>Kinematic bicycle model (RK4), matched to the
+        F1TENTH car's wheelbase and actuator limits, so the plan is feasible for the simulator's
+        full dynamic model.</p></div>
+      <div class="card"><h3>Optimiser</h3><p>Nonlinear MPC solved with <b>CasADi + IPOPT</b>,
+        warm-started each step, with a friction-circle limit on lateral acceleration to keep the
+        car inside the tyre grip envelope.</p></div>
+      <div class="card"><h3>Reference</h3><p>Tracks a pre-computed minimum-time racing line
+        (position + curvature + target-speed profile) — the same kind of line a real racing team
+        optimises offline.</p></div>
+      <div class="card"><h3>Stack</h3><p>Python, CasADi/IPOPT, NumPy, the open-source
+        <b>F1TENTH Gym</b>. Reproducible benchmark + plots; runs on any laptop.</p></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>The engineering story</h2>
+    <p class="lead">The interesting part wasn't the happy path — it was the failures. Every crash
+      traced back to a specific, non-obvious bug:</p>
+    <ul>
+      <li><b>The kinematic yaw-rate exploit.</b> Because yaw rate scales with speed, the optimiser
+        learned to <i>speed up</i> to turn harder in tight corners — planning 13 m/s and 26× the
+        available tyre grip. Fixed with a one-sided penalty on exceeding the grip-optimal speed.</li>
+      <li><b>Heading-wrap solver blow-ups.</b> When the measured heading wrapped ±π, the warm-start
+        guess became inconsistent with the state and the solver spun the car into the wall — the
+        root cause of <i>every</i> remaining crash. Fixed with a continuously-unwrapped heading.</li>
+      <li><b>The payoff.</b> Fixing these turned a car that couldn't finish a lap into one lapping
+        within 5% of the theoretical optimum, tracking the line to a few centimetres.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>Under the hood</h2>
+    <div class="grid">
+      <figure><img src="assets/Spielberg_trajectories.png" alt="Trajectory coloured by speed" />
+        <figcaption class="cap">Full lap, coloured by speed — the racing line, followed.</figcaption></figure>
+      <figure><img src="assets/Spielberg_speed.png" alt="Speed profile: MPC vs pure pursuit" />
+        <figcaption class="cap">Speed profile: MPC (orange) vs pure-pursuit baseline (blue).</figcaption></figure>
+    </div>
+  </section>
+
+  <footer>
+    Built with the F1TENTH Gym · CasADi/IPOPT · Python — inspired by Politecnico di Milano's PoliMOVE / AIDA lab.<br>
+    <a id="repo-link2" href="https://github.com/fauzan111/High-Speed-Autonomous-Racing-Control-F1TENTH-">github.com/fauzan111/High-Speed-Autonomous-Racing-Control-F1TENTH-</a>
+  </footer>
+
+</div>
+</body>
+</html>

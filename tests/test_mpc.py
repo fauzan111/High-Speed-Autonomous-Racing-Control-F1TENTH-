@@ -181,7 +181,8 @@ def test_low_speed_model_matches_kinematic_branch(controller):
 def test_reference_heading_is_body_yaw_not_velocity_direction(controller):
     state = CarState(10.0, 0.0, np.pi / 2, 5.0)
     reference = controller._build_reference(state, state.yaw)
-    geometric = MPCController(controller.rl, horizon=controller.N, understeer_compensation=False)
+    geometric = MPCController(controller.rl, horizon=controller.N, speed_cap=controller.speed_cap,
+                              understeer_compensation=False)
     tangent_reference = geometric._build_reference(state, state.yaw)
     beta = (controller.p.lr - reference[3] ** 2 / (controller.mu_used * 9.81 * controller.p.C_Sr)) * 0.1
     assert reference[2] == pytest.approx(tangent_reference[2] - beta)

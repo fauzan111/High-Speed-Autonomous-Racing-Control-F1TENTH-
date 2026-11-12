@@ -184,5 +184,33 @@ def test_reference_heading_is_body_yaw_not_velocity_direction(controller):
     geometric = MPCController(controller.rl, horizon=controller.N, speed_cap=controller.speed_cap,
                               understeer_compensation=False)
     tangent_reference = geometric._build_reference(state, state.yaw)
-    beta = (controller.p.lr - reference[3] ** 2 / (controller.mu_used * 9.81 * controller.p.C_Sr)) * 0.1
+    beta = (controller.p.lr - reference[3] ** 2 / (controller.model_mu * 9.81 * controller.p.C_Sr)) * 0.1
     assert reference[2] == pytest.approx(tangent_reference[2] - beta)
+
+
+def test_confidence_margin_changes_budget_without_changing_model_gain(controller):
+    state = CarState(10.0, 0.0, np.pi / 2, 5.0)
+    nominal_mu = controller.p.mu
+    controller.set_grip(0.7, sigma=0.1)
+    assert controller.mu_used == pytest.approx(0.5)
+    assert controller.model_mu == nominal_mu
+    controller._build_reference(state, state.yaw)
+    # Hold reference speed fixed to separate the body-yaw model from speed caps.
+    yaw_rate, slip = controller._yaw_and_slip(8.0, 0.05)
+    model = ca.Function("fixed_gain", [controller.p_mu], [yaw_rate, slip])
+    baseline = model(nominal_mu)
+    updated = model(controller.model_mu)
+    assert [float(x) for x in updated] == pytest.approx([float(x) for x in baseline])
+    controller._solve(state)
+    assert controller.opti.value(controller.p_mu) == pytest.approx(nominal_mu)
+    assert controller.opti.value(controller.p_a_lat_max) == pytest.approx(0.7 * 0.5 * 9.81)
+
+
+def test_experimental_dynamics_uses_point_estimate_without_confidence_margin(controller):
+    adaptive = MPCController(controller.rl, horizon=5, adapt_dynamics=True)
+    adaptive.set_grip(0.7, sigma=0.1)
+    assert adaptive.model_mu == pytest.approx(0.7)
+    assert adaptive.mu_used == pytest.approx(0.5)
+    state = CarState(10.0, 0.0, np.pi / 2, 5.0)
+    adaptive._solve(state)
+    assert adaptive.opti.value(adaptive.p_mu) == pytest.approx(0.7)

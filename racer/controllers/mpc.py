@@ -48,6 +48,7 @@ class MPCController(Controller):
         grip_frac: float = 0.7,     # usable fraction of mu*g for lateral accel
         w_slack: float = 1e3,       # lateral-acceleration slack penalty [cost/(m/s^2)^2]
         understeer_compensation: bool = True,  # steady-state dynamic ST approximation
+        adapt_dynamics: bool = False,  # experimental: use point estimate for tyre model
     ):
         self.rl = raceline
         self.p = params or config.VehicleParams()
@@ -61,6 +62,8 @@ class MPCController(Controller):
             raise ValueError("w_slack must be finite and nonnegative")
         self.w_slack = float(w_slack)
         self.understeer_compensation = understeer_compensation
+        self.adapt_dynamics = adapt_dynamics
+        self.model_mu = self.p.mu
         self.grip_frac = grip_frac
         self.mu_used = self.p.mu
         self._grip_adapted = False
@@ -129,7 +132,7 @@ class MPCController(Controller):
         ref = opti.parameter(4, N)         # [Xr, Yr, psir, vr] for stages 1..N
         u_prev = opti.parameter(2)         # last applied input (rate penalty)
         a_lat_max = opti.parameter()       # updated without rebuilding the NLP
-        self.p_mu = opti.parameter()      # same grip estimate in yaw/slip model
+        self.p_mu = opti.parameter()      # physical-model point value, not grip budget
 
         opti.subject_to(X[:, 0] == x0)
         cost = 0
@@ -181,7 +184,7 @@ class MPCController(Controller):
         # Register the complete objective, including friction slack penalties.
         opti.minimize(cost)
         opti.set_value(a_lat_max, self.a_lat_max)
-        opti.set_value(self.p_mu, self.mu_used)
+        opti.set_value(self.p_mu, self.model_mu)
         opti.solver("ipopt", {
             "ipopt.print_level": 0,
             "print_time": False,
@@ -205,6 +208,9 @@ class MPCController(Controller):
 
         The floor is a numerical operating assumption, not a safety guarantee.
         True simulator friction must never be passed here by adaptive experiments.
+        By default the physical yaw/slip model remains at nominal friction;
+        only the cornering budget and speed profile change. Experimental
+        adapt_dynamics uses mu_hat, never its lower confidence bound.
         """
         values = np.asarray([mu_hat, sigma, uncertainty_scale], dtype=float)
         if not np.all(np.isfinite(values)) or mu_hat <= 0 or sigma < 0 or uncertainty_scale < 0:
@@ -212,6 +218,10 @@ class MPCController(Controller):
         mu_used = float(np.clip(mu_hat - uncertainty_scale * sigma, 0.1, self.p.mu))
         self._profile_dirty |= not self._grip_adapted or mu_used != self.mu_used
         self.mu_used = mu_used
+        if self.adapt_dynamics:
+            # Uncertainty reduces the available grip budget, not expected tyre
+            # cornering stiffness. This mode uses the un-margined point estimate.
+            self.model_mu = float(np.clip(mu_hat, 0.1, self.p.mu))
         self.a_lat_max = self.grip_frac * self.mu_used * 9.81
         self._grip_adapted = True
         # Queue updates until the next scheduled solve. This preserves the same
@@ -299,7 +309,7 @@ class MPCController(Controller):
         psir = np.arctan2(sinr, cosr)
         if self.understeer_compensation:
             curvature = np.interp(s_query, rl.s, rl.kappa, period=L)
-            beta_ref = (self.p.lr - vxr ** 2 / (self.mu_used * 9.81 * self.p.C_Sr)) * curvature
+            beta_ref = (self.p.lr - vxr ** 2 / (self.model_mu * 9.81 * self.p.C_Sr)) * curvature
             # Raceline headings describe velocity direction; the MPC state is
             # body yaw. Match their frames using the same steady-state slip.
             psir -= np.where(vxr >= 0.5, beta_ref, 0.0)
@@ -330,7 +340,7 @@ class MPCController(Controller):
         ref = self._build_reference(state, yaw_cont)
 
         self.opti.set_value(self.p_a_lat_max, self.a_lat_max)
-        self.opti.set_value(self.p_mu, self.mu_used)
+        self.opti.set_value(self.p_mu, self.model_mu)
         self.opti.set_value(self.p_x0, x0)
         self.opti.set_value(self.p_ref, ref)
         self.opti.set_value(self.p_uprev, self._u_prev)

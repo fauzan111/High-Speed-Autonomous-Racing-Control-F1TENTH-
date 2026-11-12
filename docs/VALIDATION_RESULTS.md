@@ -46,3 +46,21 @@ MPC must complete wet/mild-wet trials; fixed-dry is allowed to fail on wet groun
 All arms use the same model and tuning except their friction information.
 No adaptive superiority claim is made without completed-run evidence. Runs are
 deterministic demonstrations with noise-free simulated motion, not a robustness study.
+
+
+## Corrected-model dry calibration
+
+[Corrected-model speed sweep](https://github.com/fauzan111/High-Speed-Autonomous-Racing-Control-F1TENTH-/actions/runs/43201373737), with positive slack weight 1000:
+
+| Speed cap | Default profile | Grip-adapted profile |
+|---|---|---|
+| 0.97 | Crash | Crash |
+| 0.90 | Crash | Crash |
+| 0.80 | Crash | Crash |
+| 0.70 | 65.16 s, complete | 65.16 s, complete |
+
+At 0.70, maximum tracking error was 0.1059 m and there were no solver failures.
+The new controller therefore uses a conservative 0.70 speed cap pending further
+model/performance improvements. It is slower than the historical free-slack MPC
+and the tuned Pure Pursuit baseline. No speed advantage is claimed. Full adaptive
+comparisons use this same setting across all friction-information variants.

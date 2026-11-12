@@ -17,7 +17,7 @@ def controller():
     return MPCController(Raceline(
         radius * angle, radius * np.cos(angle), radius * np.sin(angle),
         angle + np.pi / 2, np.full(n, 1 / radius), np.full(n, 8.0), np.zeros(n),
-    ), horizon=5)
+    ), horizon=5, speed_cap=0.97)
 
 
 def test_friction_slack_has_positive_objective_cost(controller):

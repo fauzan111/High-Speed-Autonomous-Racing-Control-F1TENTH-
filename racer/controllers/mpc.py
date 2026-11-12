@@ -44,7 +44,7 @@ class MPCController(Controller):
         rd_delta: float = 0.20,     # steering rate (smoothness)
         rd_a: float = 0.02,         # accel rate
         q_over: float = 40.0,       # penalty for exceeding raceline speed
-        speed_cap: float = 0.97,    # scale raceline target speed
+        speed_cap: float = 0.70,    # scale raceline target speed
         grip_frac: float = 0.7,     # usable fraction of mu*g for lateral accel
         w_slack: float = 1e3,       # lateral-acceleration slack penalty [cost/(m/s^2)^2]
         understeer_compensation: bool = True,  # steady-state dynamic ST approximation
@@ -123,7 +123,7 @@ class MPCController(Controller):
 
         X = opti.variable(4, N + 1)   # states
         U = opti.variable(2, N)       # inputs [delta, a]
-        slack = opti.variable(N)      # friction-circle slack (>= 0)
+        slack = opti.variable(N)      # lateral-acceleration slack (>= 0)
 
         x0 = opti.parameter(4)             # current state
         ref = opti.parameter(4, N)         # [Xr, Yr, psir, vr] for stages 1..N
@@ -158,11 +158,10 @@ class MPCController(Controller):
         opti.subject_to(opti.bounded(-self.p.a_max, U[1, :], self.p.a_max))
         opti.subject_to(opti.bounded(0.0, X[3, :], self.p.v_max))
 
-        # friction-circle limit: keep lateral acceleration within grip so the
-        # kinematic plan stays feasible for the real (dynamic) car. This is what
-        # forces the controller to brake *before* a tight corner. Implemented as
-        # a SOFT constraint (slack + heavy penalty) so the NLP never becomes
-        # infeasible near the limit — a hard bound makes IPOPT fail and freeze.
+        # Soft lateral-acceleration bound, using the same predicted yaw gain
+        # as the motion model. This reserves a fraction of mu*g for cornering;
+        # it does not enforce a combined longitudinal/lateral friction circle.
+        # Slack permits recovery from states already outside the envelope.
         # Zero is allowed for diagnostic reproduction of the historical free-
         # slack controller. It disables grip enforcement and is not a safe mode.
         w_slack = self.w_slack

@@ -92,3 +92,25 @@ its `synthetic-grip-evidence` and `simulator-evidence` artifacts to inspect resu
 The checked-in synthetic report is not a substitute for these integration runs.
 `control_ms_per_physics_step` includes estimator and controller overhead, amortized
 across held commands; it is not a mean NLP solve time.
+
+
+### Controller model correction
+
+The MPC's default model now accounts for the zero-longitudinal-acceleration
+steady-state response of the simulator's linear single-track tyres:
+
+```
+L_eff = wheelbase + v² / (mu*g) * (1/C_Sf - 1/C_Sr)
+curvature = steering / L_eff
+r = v * curvature
+beta = (lr - v²/(mu*g*C_Sr)) * curvature
+xdot = v*cos(yaw + beta), ydot = v*sin(yaw + beta)
+```
+
+Below 0.5 m/s it uses the original kinematic branch. The reference heading is
+converted from path tangent to body yaw using the same slip approximation. The
+lateral soft constraint uses `v*r`; runtime `mu` updates both model and limit.
+This removes the original assumption that all measured steering immediately
+creates kinematic yaw, which conflicts with the simulator's tyre slip. Transient
+slip, acceleration load transfer and combined-force saturation are still omitted.
+`understeer_compensation=False` exists for historical diagnostics only.

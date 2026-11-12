@@ -14,7 +14,7 @@ problem — **planning and control at the friction limit** — in the open-sourc
 
 ---
 
-## The result
+## The result — original kinematic controller
 
 Benchmarked on the **Spielberg (Red Bull Ring)** track, 338 m lap:
 
@@ -47,10 +47,13 @@ optimized racing line  ──►  MPC (receding horizon)  ──►  [steering, 
 ```
 
 ### Vehicle model
-The MPC plans with a **kinematic bicycle model** (state `[x, y, ψ, v]`, input
-`[steering, acceleration]`), discretized with RK4, using the F1TENTH car's real
-wheelbase and actuator limits so its plan is consistent with the simulator's
-single-track *dynamic* model.
+The published benchmark above used a **kinematic bicycle model**. The grip
+extension keeps state `[x, y, ψ, v]` and input `[steering, acceleration]`, with RK4,
+and adds a **steady-state single-track approximation** for speed-dependent yaw
+response and body slip. This is an equilibrium correction, not full transient
+tyre dynamics. Runtime friction affects both this approximation and the lateral
+acceleration soft constraint. See [validation evidence](docs/VALIDATION_RESULTS.md)
+for the regression that motivated the change.
 
 ### Optimal control problem (solved every tick)
 Minimize, over a horizon of N = 25 steps (`dt` = 0.1 s ≈ 2.5 s preview):
@@ -64,7 +67,7 @@ subject to:
 
 - vehicle dynamics (RK4 kinematic bicycle),
 - steering / acceleration / speed bounds and steering-rate limits,
-- a **friction-circle limit** on lateral acceleration (`v²/L·tan δ ≤ μg`,
+- a **lateral-grip limit** on predicted acceleration (`|v·r_model| ≤ grip_frac·μg`,
   soft-constrained), so the plan stays inside the tire grip envelope.
 
 Only the first input is applied; the problem is re-solved at the next tick

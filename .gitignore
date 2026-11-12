@@ -9,3 +9,5 @@ results/*.mp4
 # Regenerable experiment telemetry (summaries remain reviewable).
 results/grip_*/
 results/synthetic_grip/*.csv
+.venv-demo/
+results/adaptive-demo/

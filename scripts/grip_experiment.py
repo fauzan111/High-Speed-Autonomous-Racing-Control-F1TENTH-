@@ -36,7 +36,7 @@ def main():
     parser.add_argument("--wet-mu", type=float, default=0.6)
     parser.add_argument("--max-time", type=float, default=200.0)
     parser.add_argument("--require-completion", nargs="*", choices=["fixed_dry", "fixed_wet", "adaptive"], default=[])
-    parser.add_argument("--speed-cap", type=float, default=0.97)
+    parser.add_argument("--speed-cap", type=float, default=0.8)
     parser.add_argument("--slack-weight", type=float, default=1000.0)
     parser.add_argument("--out", type=Path, default=Path("results/grip_experiment"))
     args = parser.parse_args()

@@ -10,9 +10,9 @@ from racer.runner import run_episode
 def main():
     rl = Raceline.load()
     rows = []
-    for cap, weight in [(0.97, w) for w in [0, 1, 10, 100, 1000]] + [(0.8, 1000)]:
+    for cap, weight in [(cap, 1000) for cap in [0.97, 0.9, 0.8, 0.7]]:
         for adapted in [False, True]:
-            controller = MPCController(rl, speed_cap=cap, w_slack=weight)
+            controller = MPCController(rl, speed_cap=cap, w_slack=weight, understeer_compensation=True)
             if adapted:
                 controller.set_grip(controller.p.mu)
             result = run_episode(controller, max_sim_time=240)

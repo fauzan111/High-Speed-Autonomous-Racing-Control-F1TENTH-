@@ -61,7 +61,6 @@ jobs:
       - run: python -m scripts.prepare_map --map Spielberg
       - run: python -m scripts.check_environment
       - name: Dry controller calibration
-        if: github.event_name == 'workflow_dispatch' && inputs.calibrate
         run: python -m scripts.tune_mpc
       - name: Corrected dry baseline
         run: python -m scripts.benchmark --max-time 200 --require-completion

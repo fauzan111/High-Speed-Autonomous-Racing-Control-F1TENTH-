@@ -33,6 +33,7 @@ def ideal_lap_time(rl: Raceline) -> float:
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--map", default=config.DEFAULT_MAP)
+    ap.add_argument("--speed-cap", type=float, default=0.8)
     ap.add_argument("--require-completion", action="store_true")
     ap.add_argument("--max-time", type=float, default=200.0)
     args = ap.parse_args()
@@ -42,7 +43,7 @@ def main():
 
     controllers = [
         PurePursuit(rl),
-        MPCController(rl),
+        MPCController(rl, speed_cap=args.speed_cap),
     ]
 
     results = []

@@ -39,6 +39,22 @@ jobs:
           path: results/synthetic_grip
           if-no-files-found: warn
   simulator:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: dry
+            surface: dry
+            wet_mu: 0.6
+            required: fixed_dry fixed_wet adaptive
+          - name: wet
+            surface: wet
+            wet_mu: 0.6
+            required: fixed_wet adaptive
+          - name: wet_mild
+            surface: wet
+            wet_mu: 0.8
+            required: fixed_wet adaptive
     needs: tests
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -64,16 +80,13 @@ jobs:
         if: github.event_name == 'workflow_dispatch' && inputs.calibrate
         run: python -m scripts.tune_mpc
       - name: Corrected dry baseline
+        if: matrix.name == 'dry'
         run: python -m scripts.benchmark --max-time 200 --require-completion
-      - name: Dry adaptive comparison
-        run: python -m scripts.grip_experiment --surface dry --out results/grip_dry --require-completion fixed_dry fixed_wet adaptive
-      - name: Wet adaptive comparison
-        run: python -m scripts.grip_experiment --surface wet --out results/grip_wet --require-completion fixed_wet adaptive
-      - name: Wet severity comparison
-        run: python -m scripts.grip_experiment --surface wet --wet-mu 0.8 --out results/grip_wet_mild --require-completion fixed_wet adaptive
+      - name: Controller comparison (${{ matrix.name }})
+        run: python -m scripts.grip_experiment --surface ${{ matrix.surface }} --wet-mu ${{ matrix.wet_mu }} --out results/grip_${{ matrix.name }} --require-completion ${{ matrix.required }}
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: simulator-evidence
+          name: simulator-evidence-${{ matrix.name }}
           path: results/
           if-no-files-found: warn

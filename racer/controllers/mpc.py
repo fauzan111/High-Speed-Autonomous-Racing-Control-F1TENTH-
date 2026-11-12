@@ -10,9 +10,10 @@ Unlike pure pursuit, MPC reasons about the vehicle model and future reference
 *together*, so it plans the corner entry before the corner — it brakes and
 turns ahead of time instead of understeering wide.
 
-Model: kinematic bicycle (state = [X, Y, psi, v], input = [delta, a]), matched
-to the F1TENTH wheelbase and actuator limits, discretized with RK4. Solved with
-CasADi + IPOPT.
+Model: four-state bicycle with optional steady-state single-track yaw gain
+and body-slip correction (state = [X, Y, psi, v], input = [delta, a]). This
+approximates linear-tyre equilibrium, not full transient dynamics or tyre
+saturation. Matched to F1TENTH parameters, integrated with RK4; CasADi + IPOPT.
 """
 from __future__ import annotations
 
@@ -43,8 +44,11 @@ class MPCController(Controller):
         rd_delta: float = 0.20,     # steering rate (smoothness)
         rd_a: float = 0.02,         # accel rate
         q_over: float = 40.0,       # penalty for exceeding raceline speed
-        speed_cap: float = 0.97,    # scale raceline target speed
+        speed_cap: float = 0.70,    # scale raceline target speed
         grip_frac: float = 0.7,     # usable fraction of mu*g for lateral accel
+        w_slack: float = 1e3,       # lateral-acceleration slack penalty [cost/(m/s^2)^2]
+        understeer_compensation: bool = True,  # steady-state dynamic ST approximation
+        adapt_dynamics: bool = False,  # experimental: use point estimate for tyre model
     ):
         self.rl = raceline
         self.p = params or config.VehicleParams()
@@ -52,21 +56,59 @@ class MPCController(Controller):
         self.dt = dt
         self.resolve_every = resolve_every
         self.speed_cap = speed_cap
-        self.a_lat_max = grip_frac * self.p.mu * 9.81
+        if not 0.0 < grip_frac <= 1.0:
+            raise ValueError("grip_frac must be in (0, 1]")
+        if not np.isfinite(w_slack) or w_slack < 0:
+            raise ValueError("w_slack must be finite and nonnegative")
+        self.w_slack = float(w_slack)
+        self.understeer_compensation = understeer_compensation
+        self.adapt_dynamics = adapt_dynamics
+        self.model_mu = self.p.mu
+        self.grip_frac = grip_frac
+        self.mu_used = self.p.mu
+        self._grip_adapted = False
+        self._profile_dirty = False
+        self.a_lat_max = grip_frac * self.mu_used * 9.81
+        self._update_speed_profile()
 
         self._build_solver(q_pos, q_yaw, q_v, r_delta, r_a, rd_delta, rd_a, q_over)
         self.reset()
 
     # ------------------------------------------------------------------ build
+    def _yaw_and_slip(self, speed, steering):
+        """Steady-state ST approximation, with the simulator's low-speed switch.
+
+        Setting yaw acceleration and slip-angle rate to zero in F1TENTH's
+        linear-tyre ST equations (zero longitudinal load transfer) gives:
+          delta = [L + v^2/(mu*g)*(1/C_Sf - 1/C_Sr)] * curvature
+          beta = [lr - v^2/(mu*g*C_Sr)] * curvature
+        This compensates both yaw gain and velocity direction. It is an
+        equilibrium approximation, not transient tyre dynamics or a saturation
+        model. Below 0.5 m/s retain the simulator's kinematic branch.
+        """
+        p = self.p
+        if not self.understeer_compensation:
+            return speed / p.wheelbase * ca.tan(steering), 0.0
+        mu = self.p_mu
+        effective_wheelbase = (p.wheelbase + speed ** 2 / (mu * 9.81)
+                               * (1.0 / p.C_Sf - 1.0 / p.C_Sr))
+        curvature = steering / effective_wheelbase
+        dynamic_yaw_rate = speed * curvature
+        dynamic_slip = (p.lr - speed ** 2 / (mu * 9.81 * p.C_Sr)) * curvature
+        dynamic = ca.fabs(speed) >= 0.5
+        return (ca.if_else(dynamic, dynamic_yaw_rate,
+                           speed / p.wheelbase * ca.tan(steering)),
+                ca.if_else(dynamic, dynamic_slip, 0.0))
+
     def _f(self, x, u):
-        """Continuous kinematic bicycle dynamics."""
-        L = self.p.wheelbase
+        """Continuous bicycle dynamics, optionally corrected for steady tyre slip."""
         psi, v = x[2], x[3]
         delta, a = u[0], u[1]
+        yaw_rate, slip = self._yaw_and_slip(v, delta)
         return ca.vertcat(
-            v * ca.cos(psi),
-            v * ca.sin(psi),
-            v / L * ca.tan(delta),
+            v * ca.cos(psi + slip),
+            v * ca.sin(psi + slip),
+            yaw_rate,
             a,
         )
 
@@ -84,11 +126,13 @@ class MPCController(Controller):
 
         X = opti.variable(4, N + 1)   # states
         U = opti.variable(2, N)       # inputs [delta, a]
-        slack = opti.variable(N)      # friction-circle slack (>= 0)
+        slack = opti.variable(N)      # lateral-acceleration slack (>= 0)
 
         x0 = opti.parameter(4)             # current state
         ref = opti.parameter(4, N)         # [Xr, Yr, psir, vr] for stages 1..N
         u_prev = opti.parameter(2)         # last applied input (rate penalty)
+        a_lat_max = opti.parameter()       # updated without rebuilding the NLP
+        self.p_mu = opti.parameter()      # physical-model point value, not grip budget
 
         opti.subject_to(X[:, 0] == x0)
         cost = 0
@@ -112,24 +156,23 @@ class MPCController(Controller):
             cost += rd_delta * (U[0, k] - u_prevk[0]) ** 2
             cost += rd_a * (U[1, k] - u_prevk[1]) ** 2
 
-        opti.minimize(cost)
-
         # actuator / state limits
         opti.subject_to(opti.bounded(self.p.s_min, U[0, :], self.p.s_max))
         opti.subject_to(opti.bounded(-self.p.a_max, U[1, :], self.p.a_max))
         opti.subject_to(opti.bounded(0.0, X[3, :], self.p.v_max))
 
-        # friction-circle limit: keep lateral acceleration within grip so the
-        # kinematic plan stays feasible for the real (dynamic) car. This is what
-        # forces the controller to brake *before* a tight corner. Implemented as
-        # a SOFT constraint (slack + heavy penalty) so the NLP never becomes
-        # infeasible near the limit — a hard bound makes IPOPT fail and freeze.
-        L = self.p.wheelbase
-        w_slack = 1e3
+        # Soft lateral-acceleration bound, using the same predicted yaw gain
+        # as the motion model. This reserves a fraction of mu*g for cornering;
+        # it does not enforce a combined longitudinal/lateral friction circle.
+        # Slack permits recovery from states already outside the envelope.
+        # Zero is allowed for diagnostic reproduction of the historical free-
+        # slack controller. It disables grip enforcement and is not a safe mode.
+        w_slack = self.w_slack
         for k in range(N):
-            a_lat = X[3, k] ** 2 / L * ca.tan(U[0, k])
-            opti.subject_to(a_lat <= self.a_lat_max + slack[k])
-            opti.subject_to(a_lat >= -self.a_lat_max - slack[k])
+            yaw_rate, _ = self._yaw_and_slip(X[3, k], U[0, k])
+            a_lat = X[3, k] * yaw_rate
+            opti.subject_to(a_lat <= a_lat_max + slack[k])
+            opti.subject_to(a_lat >= -a_lat_max - slack[k])
             opti.subject_to(slack[k] >= 0)
             cost += w_slack * slack[k] ** 2
         # steering-rate limit between stages
@@ -138,6 +181,10 @@ class MPCController(Controller):
             opti.subject_to(opti.bounded(self.p.sv_min * self.dt, dd,
                                          self.p.sv_max * self.dt))
 
+        # Register the complete objective, including friction slack penalties.
+        opti.minimize(cost)
+        opti.set_value(a_lat_max, self.a_lat_max)
+        opti.set_value(self.p_mu, self.model_mu)
         opti.solver("ipopt", {
             "ipopt.print_level": 0,
             "print_time": False,
@@ -153,6 +200,66 @@ class MPCController(Controller):
         self.opti = opti
         self.X, self.U, self.slack = X, U, slack
         self.p_x0, self.p_ref, self.p_uprev = x0, ref, u_prev
+        self.p_a_lat_max = a_lat_max
+
+    def set_grip(self, mu_hat: float, sigma: float = 0.0,
+                 uncertainty_scale: float = 2.0) -> float:
+        """Use a bounded lower-confidence grip estimate for future solves.
+
+        The floor is a numerical operating assumption, not a safety guarantee.
+        True simulator friction must never be passed here by adaptive experiments.
+        By default the physical yaw/slip model remains at nominal friction;
+        only the cornering budget and speed profile change. Experimental
+        adapt_dynamics uses mu_hat, never its lower confidence bound.
+        """
+        values = np.asarray([mu_hat, sigma, uncertainty_scale], dtype=float)
+        if not np.all(np.isfinite(values)) or mu_hat <= 0 or sigma < 0 or uncertainty_scale < 0:
+            raise ValueError("need finite positive mu_hat and nonnegative sigma/uncertainty_scale")
+        mu_used = float(np.clip(mu_hat - uncertainty_scale * sigma, 0.1, self.p.mu))
+        self._profile_dirty |= not self._grip_adapted or mu_used != self.mu_used
+        self.mu_used = mu_used
+        if self.adapt_dynamics:
+            # Uncertainty reduces the available grip budget, not expected tyre
+            # cornering stiffness. This mode uses the un-margined point estimate.
+            self.model_mu = float(np.clip(mu_hat, 0.1, self.p.mu))
+        self.a_lat_max = self.grip_frac * self.mu_used * 9.81
+        self._grip_adapted = True
+        # Queue updates until the next scheduled solve. This preserves the same
+        # solve cadence in fixed and adaptive arms and times profile work inside
+        # the controller call rather than hiding it in the estimator callback.
+        return self.mu_used
+
+    def _update_speed_profile(self) -> None:
+        """Cap corner speeds, then propagate braking/acceleration around the loop.
+
+        This assumes the current grip everywhere in the preview, without access
+        to a map of future wet patches. Limits are longitudinal/lateral bounds,
+        not a combined tyre-force-circle guarantee.
+        """
+        rl = self.rl
+        if not self._grip_adapted:
+            # Preserve the shipped dry baseline target until adaptation is enabled.
+            self._reference_speeds = np.clip(rl.vx * self.speed_cap, 0.0, self.p.v_max)
+            return
+        curve_limit = np.sqrt(self.a_lat_max / np.maximum(np.abs(rl.kappa), 1e-9))
+        # Scale the entire dry racing-line profile with the grip budget, not
+        # only isolated corner samples. Otherwise conservative grip can create
+        # sharp local speed changes and large transient load-transfer errors.
+        grip_speed_scale = np.sqrt(self.mu_used / self.p.mu)
+        speeds = np.minimum(np.clip(rl.vx * self.speed_cap * grip_speed_scale,
+                                    0.0, self.p.v_max), curve_limit)
+        ds = np.diff(np.append(rl.s, rl.length))
+        a_long = min(self.p.a_max, self.mu_used * 9.81 * self.grip_frac)
+        # Two sweeps include constraints crossing the finish line. Squared-speed
+        # propagation only lowers speeds, so the second sweep settles the loop.
+        for _ in range(2):
+            for i in range(len(speeds) - 1, -1, -1):
+                j = (i + 1) % len(speeds)
+                speeds[i] = min(speeds[i], np.sqrt(speeds[j] ** 2 + 2 * a_long * ds[i]))
+            for i in range(len(speeds)):
+                j = (i + 1) % len(speeds)
+                speeds[j] = min(speeds[j], np.sqrt(speeds[i] ** 2 + 2 * a_long * ds[i]))
+        self._reference_speeds = speeds
 
     # ------------------------------------------------------------------ run
     def reset(self) -> None:
@@ -178,6 +285,9 @@ class MPCController(Controller):
         return self._yaw_cont
 
     def _build_reference(self, state: CarState, yaw_cont: float):
+        if self._profile_dirty:
+            self._update_speed_profile()
+            self._profile_dirty = False
         # Space reference points by the arc length the car *should* cover each
         # step at the racing line's target speed (progress = integral of v dt).
         # Spacing by current speed instead would collapse the reference to a
@@ -187,13 +297,13 @@ class MPCController(Controller):
         s_acc = rl.progress(state.x, state.y)
         s_query = np.empty(self.N)
         for k in range(self.N):
-            v_here = np.interp(s_acc % L, rl.s, rl.vx, period=L) * self.speed_cap
+            v_here = np.interp(s_acc % L, rl.s, self._reference_speeds, period=L)
             s_acc += max(v_here, 1.0) * self.dt
             s_query[k] = s_acc % L
 
         xr = np.interp(s_query, rl.s, rl.x, period=L)
         yr = np.interp(s_query, rl.s, rl.y, period=L)
-        vxr = np.clip(np.interp(s_query, rl.s, rl.vx, period=L) * self.speed_cap,
+        vxr = np.clip(np.interp(s_query, rl.s, self._reference_speeds, period=L),
                       0.0, self.p.v_max)
         # Interpolate heading through sin/cos so the raceline's psi wrap (it
         # passes through +/-pi mid-track) never injects a spurious 2*pi jump
@@ -202,6 +312,12 @@ class MPCController(Controller):
         sinr = np.interp(s_query, rl.s, np.sin(rl.psi), period=L)
         cosr = np.interp(s_query, rl.s, np.cos(rl.psi), period=L)
         psir = np.arctan2(sinr, cosr)
+        if self.understeer_compensation:
+            curvature = np.interp(s_query, rl.s, rl.kappa, period=L)
+            beta_ref = (self.p.lr - vxr ** 2 / (self.model_mu * 9.81 * self.p.C_Sr)) * curvature
+            # Raceline headings describe velocity direction; the MPC state is
+            # body yaw. Match their frames using the same steady-state slip.
+            psir -= np.where(vxr >= 0.5, beta_ref, 0.0)
         # Put the reference heading on the same continuous branch as the car's
         # unwrapped heading so it agrees with x0 and the warm-start guess.
         psir = np.unwrap(np.concatenate(([yaw_cont], psir)))[1:]
@@ -228,6 +344,8 @@ class MPCController(Controller):
         x0 = np.array([state.x, state.y, yaw_cont, max(state.v, 0.0)])
         ref = self._build_reference(state, yaw_cont)
 
+        self.opti.set_value(self.p_a_lat_max, self.a_lat_max)
+        self.opti.set_value(self.p_mu, self.model_mu)
         self.opti.set_value(self.p_x0, x0)
         self.opti.set_value(self.p_ref, ref)
         self.opti.set_value(self.p_uprev, self._u_prev)
@@ -252,7 +370,7 @@ class MPCController(Controller):
             # reference next tick so we don't get stuck failing on a bad guess.
             self.solve_fails += 1
             prev_delta = float(self._last_cmd[0])
-            brake_v = max(state.v - 3.0, 1.0)
+            brake_v = max(state.v - 3.0, 0.0)
             self._last_cmd = (prev_delta, brake_v)
             self._Xguess = None
             self._Uguess = None

@@ -14,7 +14,7 @@ problem — **planning and control at the friction limit** — in the open-sourc
 
 ---
 
-## The result
+## The result — original kinematic controller
 
 Benchmarked on the **Spielberg (Red Bull Ring)** track, 338 m lap:
 
@@ -47,10 +47,13 @@ optimized racing line  ──►  MPC (receding horizon)  ──►  [steering, 
 ```
 
 ### Vehicle model
-The MPC plans with a **kinematic bicycle model** (state `[x, y, ψ, v]`, input
-`[steering, acceleration]`), discretized with RK4, using the F1TENTH car's real
-wheelbase and actuator limits so its plan is consistent with the simulator's
-single-track *dynamic* model.
+The published benchmark above used a **kinematic bicycle model**. The grip
+extension keeps state `[x, y, ψ, v]` and input `[steering, acceleration]`, with RK4,
+and adds a **steady-state single-track approximation** for speed-dependent yaw
+response and body slip. This is an equilibrium correction, not full transient
+tyre dynamics. Runtime friction affects both this approximation and the lateral
+acceleration soft constraint. See [validation evidence](docs/VALIDATION_RESULTS.md)
+for the regression that motivated the change.
 
 ### Optimal control problem (solved every tick)
 Minimize, over a horizon of N = 25 steps (`dt` = 0.1 s ≈ 2.5 s preview):
@@ -64,7 +67,7 @@ subject to:
 
 - vehicle dynamics (RK4 kinematic bicycle),
 - steering / acceleration / speed bounds and steering-rate limits,
-- a **friction-circle limit** on lateral acceleration (`v²/L·tan δ ≤ μg`,
+- a **lateral-grip limit** on predicted acceleration (`|v·r_model| ≤ grip_frac·μg`,
   soft-constrained), so the plan stays inside the tire grip envelope.
 
 Only the first input is applied; the problem is re-solved at the next tick
@@ -162,3 +165,32 @@ python -m scripts.benchmark
 - Racing lines generated with the F1TENTH map database (TUM minimum-time
   trajectory optimization).
 - Inspired by Politecnico di Milano's PoliMOVE / AIDA lab.
+
+## Online grip estimation
+
+The `feature/grip-estimation` branch adds a motion-based EKF, runtime MPC grip
+adaptation, measured-data replay, and a dry/wet experiment harness. See the
+[implementation plan](docs/IMPLEMENTATION_PLAN.md),
+[estimator status and limitations](docs/GRIP_ESTIMATION.md#implementation-status-2026-11-11),
+and [environment setup notes](docs/ENVIRONMENT.md).
+Run the reproducible validation and experiments from this repository:
+
+```bash
+python -m scripts.prepare_map --map Spielberg
+python -m pytest tests -q
+python -m scripts.validate_grip --out-dir results/synthetic_grip --seed 7
+python -m scripts.grip_experiment --surface dry --out results/grip_dry
+python -m scripts.grip_experiment --surface wet --out results/grip_wet
+```
+
+Each simulation comparison saves motion CSVs, environment metadata, controller
+summaries and a friction/speed/tracking-error plot. The GitHub Actions workflow
+runs the solver tests, synthetic check, corrected baseline and dry/wet comparisons,
+then uploads evidence as artifacts.
+
+The checked-in [synthetic summary](results/synthetic_grip/summary.json) records
+steady wet-segment friction RMSE 0.0175 and wet settling time 1.91 s for seed 7.
+These are matched-model results; simulator integration and historical lap
+benchmarks still require reproduction. The simulator uses a linear tyre-response
+parameter, so results must not be presented as validated real-world peak-grip
+estimation.

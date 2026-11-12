@@ -6,3 +6,6 @@ f1tenth_gym/
 # Keep the benchmark figures (results/*.png) so the README renders on GitHub.
 
 results/*.mp4
+# Regenerable experiment telemetry (summaries remain reviewable).
+results/grip_*/
+results/synthetic_grip/*.csv

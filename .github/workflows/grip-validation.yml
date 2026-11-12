@@ -1,0 +1,71 @@
+name: Grip estimation validation
+on:
+  push:
+    branches: [main, feature/grip-estimation]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: grip-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      OMP_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - run: python -m pip install -r requirements.txt -r requirements-dev.txt
+      - name: Unit and real IPOPT tests
+        run: python -m pytest tests -q
+      - name: Matched-model estimator validation
+        run: python -m scripts.validate_grip --out-dir results/synthetic_grip --seed 7
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: synthetic-grip-evidence
+          path: results/synthetic_grip
+          if-no-files-found: warn
+  simulator:
+    needs: tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      MPLBACKEND: Agg
+      SDL_VIDEODRIVER: dummy
+      OMP_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install pinned simulator and project
+        run: |
+          git clone --branch v1.0.0 --depth 1 https://github.com/f1tenth/f1tenth_gym.git
+          git -C f1tenth_gym checkout 5a301bd0ae1ceaf7dec653e7549c8d099db58a6b
+          python -m pip install -e ./f1tenth_gym -r requirements.txt -r requirements-dev.txt
+      - run: python -m scripts.prepare_map --map Spielberg
+      - run: python -m scripts.check_environment
+      - name: Corrected dry baseline
+        run: python -m scripts.benchmark --max-time 200
+      - name: Dry adaptive comparison
+        run: python -m scripts.grip_experiment --surface dry --out results/grip_dry
+      - name: Wet adaptive comparison
+        run: python -m scripts.grip_experiment --surface wet --out results/grip_wet
+      - name: Wet severity comparison
+        run: python -m scripts.grip_experiment --surface wet --wet-mu 0.8 --out results/grip_wet_mild
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: simulator-evidence
+          path: results/
+          if-no-files-found: warn

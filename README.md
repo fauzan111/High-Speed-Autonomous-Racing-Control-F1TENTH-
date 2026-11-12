@@ -162,3 +162,32 @@ python -m scripts.benchmark
 - Racing lines generated with the F1TENTH map database (TUM minimum-time
   trajectory optimization).
 - Inspired by Politecnico di Milano's PoliMOVE / AIDA lab.
+
+## Online grip estimation
+
+The `feature/grip-estimation` branch adds a motion-based EKF, runtime MPC grip
+adaptation, measured-data replay, and a dry/wet experiment harness. See the
+[implementation plan](docs/IMPLEMENTATION_PLAN.md),
+[estimator status and limitations](docs/GRIP_ESTIMATION.md#implementation-status-2026-11-11),
+and [environment setup notes](docs/ENVIRONMENT.md).
+Run the reproducible validation and experiments from this repository:
+
+```bash
+python -m scripts.prepare_map --map Spielberg
+python -m pytest tests -q
+python -m scripts.validate_grip --out-dir results/synthetic_grip --seed 7
+python -m scripts.grip_experiment --surface dry --out results/grip_dry
+python -m scripts.grip_experiment --surface wet --out results/grip_wet
+```
+
+Each simulation comparison saves motion CSVs, environment metadata, controller
+summaries and a friction/speed/tracking-error plot. The GitHub Actions workflow
+runs the solver tests, synthetic check, corrected baseline and dry/wet comparisons,
+then uploads evidence as artifacts.
+
+The checked-in [synthetic summary](results/synthetic_grip/summary.json) records
+steady wet-segment friction RMSE 0.0175 and wet settling time 1.91 s for seed 7.
+These are matched-model results; simulator integration and historical lap
+benchmarks still require reproduction. The simulator uses a linear tyre-response
+parameter, so results must not be presented as validated real-world peak-grip
+estimation.

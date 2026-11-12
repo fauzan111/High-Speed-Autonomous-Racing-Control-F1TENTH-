@@ -1,0 +1,66 @@
+{
+  "validation_kind": "matched_model_synthetic",
+  "limitation": "Matched-model synthetic validation only; not F1TENTH integration or real-world peak-friction validation. Friction scales linear cornering stiffness in this model, with no nonlinear tyre saturation. Speed and steering are noise-free; only yaw-rate measurements contain noise. Reported EKF uncertainty is not a calibrated safety guarantee.",
+  "seed": 7,
+  "duration_s": 24.0,
+  "dt_s": 0.01,
+  "samples": 2401,
+  "yaw_noise_std_rad_s": 0.02,
+  "plant_integrator": "forward Euler with 0.0005 s substeps",
+  "estimator_integrator": "RK4 with <=0.005 s substeps",
+  "schedule": [
+    {
+      "start_s": 0.0,
+      "mu": 1.0489
+    },
+    {
+      "start_s": 8.0,
+      "mu": 0.6
+    },
+    {
+      "start_s": 16.0,
+      "mu": 1.0489
+    }
+  ],
+  "overall_mu_rmse": 0.1092875294631782,
+  "steady_segments": {
+    "dry_before": {
+      "start_s": 4.0,
+      "end_s": 8.0,
+      "samples": 400,
+      "mu_rmse": 0.006277815929551777,
+      "mu_bias": -0.0003111891680433304,
+      "mean_sigma": 0.06008909298036405
+    },
+    "wet": {
+      "start_s": 10.0,
+      "end_s": 16.0,
+      "samples": 600,
+      "mu_rmse": 0.017512553222461813,
+      "mu_bias": 0.01245581024793778,
+      "mean_sigma": 0.051039405066783734
+    },
+    "dry_after": {
+      "start_s": 18.0,
+      "end_s": 24.0,
+      "samples": 600,
+      "mu_rmse": 0.03895010160746672,
+      "mu_bias": -0.019663349403395262,
+      "mean_sigma": 0.059965697691667624
+    }
+  },
+  "wet_settling_time_s": 1.91,
+  "dry_recovery_settling_time_s": 2.62,
+  "settling_definition": "first |mu error| <=0.08 sustained for 0.5 s",
+  "final_mu_hat": 1.0493799514877522,
+  "final_sigma": 0.060029716586452606,
+  "checks": {
+    "finite_state_and_positive_semidefinite_covariance": true,
+    "no_false_updates_on_straight": true,
+    "uncertainty_preserved_on_straight": true,
+    "steady_segment_rmse_below_0_08": true,
+    "final_mu_error_below_0_08": true
+  },
+  "passed": true,
+  "sample_timing": "CSV steering is measured at each timestamp; interval mean steering drives the EKF. Yaw rate is measured at the interval end. true_mu is ground truth at the timestamp and is used for evaluation only."
+}

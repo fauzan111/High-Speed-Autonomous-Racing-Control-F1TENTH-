@@ -214,3 +214,12 @@ def test_experimental_dynamics_uses_point_estimate_without_confidence_margin(con
     state = CarState(10.0, 0.0, np.pi / 2, 5.0)
     adaptive._solve(state)
     assert adaptive.opti.value(adaptive.p_mu) == pytest.approx(0.7)
+
+
+def test_reduced_grip_scales_straight_speed_profile(controller):
+    controller.rl.kappa[:] = 0.0
+    controller.set_grip(0.6)
+    state = CarState(10.0, 0.0, np.pi / 2, 5.0)
+    controller._build_reference(state, state.yaw)
+    expected = controller.rl.vx * controller.speed_cap * np.sqrt(0.6 / controller.p.mu)
+    assert controller._reference_speeds == pytest.approx(expected)

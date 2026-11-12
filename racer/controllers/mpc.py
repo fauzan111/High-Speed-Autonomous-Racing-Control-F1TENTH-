@@ -242,7 +242,12 @@ class MPCController(Controller):
             self._reference_speeds = np.clip(rl.vx * self.speed_cap, 0.0, self.p.v_max)
             return
         curve_limit = np.sqrt(self.a_lat_max / np.maximum(np.abs(rl.kappa), 1e-9))
-        speeds = np.minimum(np.clip(rl.vx * self.speed_cap, 0.0, self.p.v_max), curve_limit)
+        # Scale the entire dry racing-line profile with the grip budget, not
+        # only isolated corner samples. Otherwise conservative grip can create
+        # sharp local speed changes and large transient load-transfer errors.
+        grip_speed_scale = np.sqrt(self.mu_used / self.p.mu)
+        speeds = np.minimum(np.clip(rl.vx * self.speed_cap * grip_speed_scale,
+                                    0.0, self.p.v_max), curve_limit)
         ds = np.diff(np.append(rl.s, rl.length))
         a_long = min(self.p.a_max, self.mu_used * 9.81 * self.grip_frac)
         # Two sweeps include constraints crossing the finish line. Squared-speed

@@ -54,6 +54,7 @@ def main():
                     simulator_revision=revision(config.GYM_ROOT),
                     configuration={**vars(args), "out": str(args.out)},
                     observation="noise-free simulator motion; measured state steering",
+                    interpretation="single deterministic demonstration, not a robustness study",
                     dependencies={})
     for name in ["numpy", "casadi", "gymnasium", "f1tenth_gym"]:
         try:
@@ -77,6 +78,14 @@ def main():
         if name == "adaptive" and result.grip_log:
             errors = [r["mu_hat"] - r["true_mu"] for r in result.grip_log]
             summary["mu_rmse"] = math.sqrt(sum(e * e for e in errors) / len(errors))
+            for label, subset in [
+                ("wet", [r for r in result.grip_log if r["true_mu"] < dry_mu]),
+                ("first_lap_wet", [r for r in result.grip_log if r["true_mu"] < dry_mu and r["lap"] == 0]),
+            ]:
+                summary[f"{label}_samples"] = len(subset)
+                summary[f"{label}_mu_rmse"] = (math.sqrt(sum(
+                    (r["mu_hat"] - r["true_mu"]) ** 2 for r in subset) / len(subset))
+                    if subset else None)
         summary["control_ms_per_physics_step"] = summary.pop("solve_ms_mean")
         summaries.append(summary)
         with (args.out / f"{name}.csv").open("w", newline="") as target:

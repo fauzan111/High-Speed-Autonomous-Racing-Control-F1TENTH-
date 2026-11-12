@@ -141,7 +141,7 @@ def run_episode(
 
             if grip_enabled:
                 grip_log.append(dict(
-                    time=step * dt, progress=progress, speed=st.v, x=st.x, y=st.y,
+                    time=step * dt, progress=progress, lap=len(wrap_times), speed=st.v, x=st.x, y=st.y,
                     cross_track=float(np.hypot(st.x - raceline.x[raceline.nearest_index(st.x, st.y)],
                                               st.y - raceline.y[raceline.nearest_index(st.x, st.y)])),
                     adaptive_compute_ms=(time.perf_counter() - adaptive_t0) * 1e3,

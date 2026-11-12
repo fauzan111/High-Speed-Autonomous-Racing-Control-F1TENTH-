@@ -23,7 +23,7 @@ def plot_experiment(directory: Path) -> Path:
             if variant == 'adaptive':
                 mu = [float(r['mu_hat']) for r in rows]
                 sigma = [float(r['sigma']) for r in rows]
-                axes[0].plot(ts, [float(r['true_mu']) for r in rows], color='black', label='true mu')
+                axes[0].plot(ts, [float(r['true_mu']) for r in rows], color='black', label='true mu (adaptive trajectory)' )
                 axes[0].plot(ts, mu, label='estimated mu')
                 axes[0].fill_between(ts, [m-2*s for m,s in zip(mu,sigma)],
                                      [m+2*s for m,s in zip(mu,sigma)], alpha=0.2, label='±2 sigma (heuristic)')

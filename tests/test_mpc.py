@@ -152,3 +152,36 @@ def test_slack_weight_scales_registered_objective(controller):
     disabled = MPCController(controller.rl, horizon=5, w_slack=0.0)
     assert slack_objective_increment(controller) == pytest.approx(100 * slack_objective_increment(weak))
     assert slack_objective_increment(disabled) == 0.0
+
+
+@pytest.mark.parametrize("speed,steering,mu", [(8.0, 0.05, 1.0489), (8.0, 0.05, 0.6),
+                                                (4.0, -0.12, 0.8)])
+def test_corrected_yaw_and_slip_satisfy_single_track_equilibrium(controller, speed, steering, mu):
+    from racer.estimation.online import single_track_rates
+
+    yaw_rate, slip = controller._yaw_and_slip(speed, steering)
+    model = ca.Function("equilibrium", [controller.p_mu], [yaw_rate, slip])
+    r, beta = [float(value) for value in model(mu)]
+    rates = single_track_rates([r, beta, mu], speed, steering, 0.0, controller.p)
+    assert rates[:2] == pytest.approx([0.0, 0.0], abs=1e-10)
+    # Independent numerical reference from the default dry F1TENTH parameters.
+    if speed == 8.0 and mu == 1.0489:
+        assert r == pytest.approx(0.7865312002, abs=1e-9)
+        assert beta == pytest.approx(-0.0952196391, abs=1e-9)
+
+
+def test_low_speed_model_matches_kinematic_branch(controller):
+    yaw_rate, slip = controller._yaw_and_slip(0.2, 0.1)
+    model = ca.Function("low_speed", [controller.p_mu], [yaw_rate, slip])
+    r, beta = [float(value) for value in model(0.6)]
+    assert r == pytest.approx(0.2 / controller.p.wheelbase * np.tan(0.1))
+    assert beta == 0.0
+
+
+def test_reference_heading_is_body_yaw_not_velocity_direction(controller):
+    state = CarState(10.0, 0.0, np.pi / 2, 5.0)
+    reference = controller._build_reference(state, state.yaw)
+    geometric = MPCController(controller.rl, horizon=controller.N, understeer_compensation=False)
+    tangent_reference = geometric._build_reference(state, state.yaw)
+    beta = (controller.p.lr - reference[3] ** 2 / (controller.mu_used * 9.81 * controller.p.C_Sr)) * 0.1
+    assert reference[2] == pytest.approx(tangent_reference[2] - beta)

@@ -1,9 +1,14 @@
 name: Grip estimation validation
 on:
   push:
-    branches: [main, feature/grip-estimation]
+    branches: [main]
   pull_request:
   workflow_dispatch:
+    inputs:
+      calibrate:
+        description: Run the diagnostic dry-controller sweep
+        type: boolean
+        default: false
 permissions:
   contents: read
 concurrency:
@@ -56,15 +61,16 @@ jobs:
       - run: python -m scripts.prepare_map --map Spielberg
       - run: python -m scripts.check_environment
       - name: Dry controller calibration
+        if: github.event_name == 'workflow_dispatch' && inputs.calibrate
         run: python -m scripts.tune_mpc
       - name: Corrected dry baseline
-        run: python -m scripts.benchmark --max-time 200
+        run: python -m scripts.benchmark --max-time 200 --require-completion
       - name: Dry adaptive comparison
-        run: python -m scripts.grip_experiment --surface dry --out results/grip_dry
+        run: python -m scripts.grip_experiment --surface dry --out results/grip_dry --require-completion fixed_dry fixed_wet adaptive
       - name: Wet adaptive comparison
-        run: python -m scripts.grip_experiment --surface wet --out results/grip_wet
+        run: python -m scripts.grip_experiment --surface wet --out results/grip_wet --require-completion fixed_wet adaptive
       - name: Wet severity comparison
-        run: python -m scripts.grip_experiment --surface wet --wet-mu 0.8 --out results/grip_wet_mild
+        run: python -m scripts.grip_experiment --surface wet --wet-mu 0.8 --out results/grip_wet_mild --require-completion fixed_wet adaptive
       - uses: actions/upload-artifact@v4
         if: always()
         with:

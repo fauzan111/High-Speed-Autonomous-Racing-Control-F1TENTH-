@@ -129,3 +129,26 @@ def test_solver_failure_brakes_even_at_low_speed(controller, monkeypatch):
     assert controller.solve_fails == 1
     assert controller._Xguess is None
     assert controller._Uguess is None
+
+
+@pytest.mark.parametrize("weight", [-1.0, float("nan"), float("inf")])
+def test_invalid_slack_weight_is_rejected(controller, weight):
+    with pytest.raises(ValueError, match="w_slack"):
+        MPCController(controller.rl, horizon=5, w_slack=weight)
+
+
+def test_slack_weight_scales_registered_objective(controller):
+    def slack_objective_increment(ctrl):
+        opti = ctrl.opti
+        objective = ca.Function("slack_objective", [opti.x, opti.p], [opti.f])
+        selector = ca.Function("slack_selector", [opti.x], [ctrl.slack])
+        indices = np.asarray(selector(np.arange(opti.nx) + 1)).astype(int).reshape(-1) - 1
+        initial = np.zeros(opti.nx)
+        shifted = initial.copy()
+        shifted[indices] = 1.0
+        return float(objective(shifted, np.zeros(opti.np)) - objective(initial, np.zeros(opti.np)))
+
+    weak = MPCController(controller.rl, horizon=5, w_slack=10.0)
+    disabled = MPCController(controller.rl, horizon=5, w_slack=0.0)
+    assert slack_objective_increment(controller) == pytest.approx(100 * slack_objective_increment(weak))
+    assert slack_objective_increment(disabled) == 0.0

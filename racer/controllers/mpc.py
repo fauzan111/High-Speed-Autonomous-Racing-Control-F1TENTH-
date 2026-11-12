@@ -45,6 +45,7 @@ class MPCController(Controller):
         q_over: float = 40.0,       # penalty for exceeding raceline speed
         speed_cap: float = 0.97,    # scale raceline target speed
         grip_frac: float = 0.7,     # usable fraction of mu*g for lateral accel
+        w_slack: float = 1e3,       # lateral-acceleration slack penalty [cost/(m/s^2)^2]
     ):
         self.rl = raceline
         self.p = params or config.VehicleParams()
@@ -54,6 +55,9 @@ class MPCController(Controller):
         self.speed_cap = speed_cap
         if not 0.0 < grip_frac <= 1.0:
             raise ValueError("grip_frac must be in (0, 1]")
+        if not np.isfinite(w_slack) or w_slack < 0:
+            raise ValueError("w_slack must be finite and nonnegative")
+        self.w_slack = float(w_slack)
         self.grip_frac = grip_frac
         self.mu_used = self.p.mu
         self._grip_adapted = False
@@ -131,7 +135,9 @@ class MPCController(Controller):
         # a SOFT constraint (slack + heavy penalty) so the NLP never becomes
         # infeasible near the limit — a hard bound makes IPOPT fail and freeze.
         L = self.p.wheelbase
-        w_slack = 1e3
+        # Zero is allowed for diagnostic reproduction of the historical free-
+        # slack controller. It disables grip enforcement and is not a safe mode.
+        w_slack = self.w_slack
         for k in range(N):
             a_lat = X[3, k] ** 2 / L * ca.tan(U[0, k])
             opti.subject_to(a_lat <= a_lat_max + slack[k])

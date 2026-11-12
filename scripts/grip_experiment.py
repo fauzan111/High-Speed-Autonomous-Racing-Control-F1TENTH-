@@ -35,6 +35,9 @@ def main():
     parser.add_argument("--surface", choices=["dry", "wet"], default="wet")
     parser.add_argument("--wet-mu", type=float, default=0.6)
     parser.add_argument("--max-time", type=float, default=200.0)
+    parser.add_argument("--require-completion", nargs="*", choices=["fixed_dry", "fixed_wet", "adaptive"], default=[])
+    parser.add_argument("--speed-cap", type=float, default=0.97)
+    parser.add_argument("--slack-weight", type=float, default=1000.0)
     parser.add_argument("--out", type=Path, default=Path("results/grip_experiment"))
     args = parser.parse_args()
     rl = Raceline.load(args.map)
@@ -60,7 +63,7 @@ def main():
     (args.out / "manifest.json").write_text(json.dumps(manifest, indent=2))
     summaries = []
     for name in ["fixed_dry", "fixed_wet", "adaptive"]:
-        controller = MPCController(rl)
+        controller = MPCController(rl, speed_cap=args.speed_cap, w_slack=args.slack_weight)
         # Apply the same profile adaptation algorithm to every comparison arm.
         controller.set_grip(args.wet_mu if name == "fixed_wet" else dry_mu, sigma=0.0)
         estimator = GripEstimator() if name == "adaptive" else None
@@ -85,6 +88,10 @@ def main():
 
     from scripts.plot_grip import plot_experiment
     print(f"Comparison plot: {plot_experiment(args.out)}")
+    failed = [r["variant"] for r in summaries
+              if r["variant"] in args.require_completion and (not r["completed"] or r["crashed"])]
+    if failed:
+        raise SystemExit("Required controllers did not finish: " + ", ".join(failed))
 
 
 if __name__ == "__main__":

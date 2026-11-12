@@ -15,7 +15,7 @@ from pathlib import Path
 from racer.estimation.online import GripEstimator
 
 
-def replay(input_path: Path, output_path: Path) -> dict:
+def replay(input_path: Path, output_path: Path, excitation_g: float = 0.15) -> dict:
     if input_path.resolve() == output_path.resolve():
         raise ValueError("input and output paths must differ")
     with input_path.open(newline="") as source:
@@ -41,7 +41,7 @@ def replay(input_path: Path, output_path: Path) -> dict:
             raise ValueError("timestamps must be strictly increasing")
         previous = values["time"]
         samples.append(values)
-    estimator = GripEstimator()
+    estimator = GripEstimator(excitation_g=excitation_g)
     first = samples[0]
     estimator.update(speed=first["speed"], steering=first["steering"],
                      yaw_rate=first["yaw_rate"], dt=samples[1]["time"] - first["time"],
@@ -75,9 +75,10 @@ def replay(input_path: Path, output_path: Path) -> dict:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("input", type=Path)
+    parser.add_argument("--excitation-g", type=float, default=0.15)
     parser.add_argument("--out", type=Path, default=Path("results/grip_replay.csv"))
     args = parser.parse_args()
-    print(json.dumps(replay(args.input, args.out), indent=2))
+    print(json.dumps(replay(args.input, args.out, excitation_g=args.excitation_g), indent=2))
 
 
 if __name__ == "__main__":

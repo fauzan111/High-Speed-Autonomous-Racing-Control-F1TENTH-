@@ -148,6 +148,7 @@ def run_episode(
                     steering=actual_steering, yaw_rate=st.yaw_rate,
                     acceleration=acceleration, true_mu=true_mu,
                     command_steering=float(steering), command_speed=float(speed),
+                    excited=estimate.excited if estimate else None,
                     mu_hat=estimate.mu_hat if estimate else None,
                     sigma=estimate.sigma if estimate else None,
                     mu_used=getattr(controller, "mu_used", None),

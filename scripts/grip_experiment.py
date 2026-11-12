@@ -36,6 +36,8 @@ def main():
     parser.add_argument("--wet-mu", type=float, default=0.6)
     parser.add_argument("--max-time", type=float, default=200.0)
     parser.add_argument("--require-completion", nargs="*", choices=["fixed_dry", "fixed_wet", "adaptive"], default=[])
+    parser.add_argument("--excitation-g", type=float, default=0.05,
+                        help="simulator linear-parameter excitation gate; not real peak-grip observability")
     parser.add_argument("--speed-cap", type=float, default=0.7)
     parser.add_argument("--slack-weight", type=float, default=1000.0)
     parser.add_argument("--out", type=Path, default=Path("results/grip_experiment"))
@@ -67,7 +69,7 @@ def main():
         controller = MPCController(rl, speed_cap=args.speed_cap, w_slack=args.slack_weight)
         # Apply the same profile adaptation algorithm to every comparison arm.
         controller.set_grip(args.wet_mu if name == "fixed_wet" else dry_mu, sigma=0.0)
-        estimator = GripEstimator() if name == "adaptive" else None
+        estimator = GripEstimator(excitation_g=args.excitation_g) if name == "adaptive" else None
         result = run_episode(controller, map_name=args.map, max_sim_time=args.max_time,
                              grip_schedule=schedule, grip_estimator=estimator)
         print(name, result.summary(), flush=True)
@@ -78,6 +80,16 @@ def main():
         if name == "adaptive" and result.grip_log:
             errors = [r["mu_hat"] - r["true_mu"] for r in result.grip_log]
             summary["mu_rmse"] = math.sqrt(sum(e * e for e in errors) / len(errors))
+            summary["estimator_diagnostics"] = dict(
+                final_mu_hat=result.grip_log[-1]["mu_hat"],
+                final_sigma=result.grip_log[-1]["sigma"],
+                final_mu_used=result.grip_log[-1]["mu_used"],
+                min_mu_hat=min(r["mu_hat"] for r in result.grip_log),
+                max_sigma=max(r["sigma"] for r in result.grip_log),
+                excited_steps=sum(bool(r["excited"]) for r in result.grip_log),
+                final_progress=result.grip_log[-1]["progress"],
+                final_lap=result.grip_log[-1]["lap"],
+            )
             for label, subset in [
                 ("wet", [r for r in result.grip_log if r["true_mu"] < dry_mu]),
                 ("first_lap_wet", [r for r in result.grip_log if r["true_mu"] < dry_mu and r["lap"] == 0]),
@@ -88,6 +100,7 @@ def main():
                     if subset else None)
         summary["control_ms_per_physics_step"] = summary.pop("solve_ms_mean")
         summaries.append(summary)
+        print(json.dumps(summary), flush=True)
         with (args.out / f"{name}.csv").open("w", newline="") as target:
             if result.grip_log:
                 writer = csv.DictWriter(target, fieldnames=list(result.grip_log[0]))

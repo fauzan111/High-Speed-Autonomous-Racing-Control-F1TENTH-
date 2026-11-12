@@ -64,3 +64,91 @@ The new controller therefore uses a conservative 0.70 speed cap pending further
 model/performance improvements. It is slower than the historical free-slack MPC
 and the tuned Pure Pursuit baseline. No speed advantage is claimed. Full adaptive
 comparisons use this same setting across all friction-information variants.
+
+## Reproduce the historical controller (diagnostic)
+
+After preparing the map, this explicitly disables the formerly unregistered
+slack penalty and uses the original kinematic model. It reproduces the historical
+benchmark, but does not validate grip enforcement:
+
+```bash
+python - <<'PY'
+from racer.controllers.mpc import MPCController
+from racer.raceline import Raceline
+from racer.runner import run_episode
+rl = Raceline.load()
+controller = MPCController(rl, speed_cap=0.97, w_slack=0,
+                           understeer_compensation=False)
+print(run_episode(controller, max_sim_time=200).summary())
+PY
+```
+
+
+## Final wet comparisons
+
+[Validation run](https://github.com/fauzan111/High-Speed-Autonomous-Racing-Control-F1TENTH-/actions/runs/43207169981), source commit `3e3d02c9acd2c56d67623bae489f34d370dd4a4d`:
+
+| Surface | Fixed dry | Fixed wet | Adaptive | Adaptive wet-portion mu RMSE |
+|---|---:|---:|---:|---:|
+| Dry | 65.16 s | 86.58 s | 69.59 s | Not applicable |
+| Wet patch, mu=0.8 | 65.21 s | 74.76 s | 73.05 s | 0.0652 |
+| Wet patch, mu=0.6 | 65.22 s | 86.61 s | 77.66 s | 0.1131 |
+
+All listed controllers completed without crashes. In the stronger-wet case,
+adaptive maximum tracking error was 0.1027 m, first-lap wet-portion mu RMSE was
+0.1141, overall mu RMSE was 0.0768, and there were no solver failures. The minimum
+estimated mu was 0.6011. Wet-portion errors include transitions; they are not
+steady-state errors. Full diagnostics and traces are in each scenario artifact.
+
+Adaptive MPC was 8.95 s (10.3%) faster than fixed-wet on mu=0.6, and 1.71 s (2.3%)
+faster on mu=0.8. Fixed-dry completed both scenarios faster than adaptive. These
+results support improvement relative to a uniformly conservative speed policy;
+they do not demonstrate that adaptation was necessary to avoid a crash, or that
+adaptive MPC outperforms an optimistic controller in this linear-tyre simulator.
+
+### Excitation-policy ablation
+
+With the globally scaled profile and the class default 0.15g excitation gate,
+the strong-wet adaptive run stayed on track but timed out at 200 s, averaging
+2.24 m/s. The experiment harness now exposes `--excitation-g` and defaults to
+0.05g for the simulator's linear-parameter identification task. The prior run
+is retained at [run 43205731364](https://github.com/fauzan111/High-Speed-Autonomous-Racing-Control-F1TENTH-/actions/runs/43205731364).
+
+This lower threshold is an explicit simulator-specific tuning choice, not proof
+of real peak-grip observability or calibrated confidence. The class default and
+seed-7 synthetic benchmark remain at 0.15g. Gentle noisy driving can still yield
+weak information. The controller retains a two-sigma heuristic margin and a
+0.70 speed cap; all comparison arms keep nominal model dynamics fixed.
+
+For simulator replay, match the recorded harness configuration:
+
+```bash
+python -m scripts.replay_grip results/grip_wet/adaptive.csv --excitation-g 0.05 --out results/grip_replay.csv
+```
+
+Replay matches mu_hat and sigma; its `mu_used` is the estimator helper's default
+one-sigma diagnostic. Online control applies the separate two-sigma policy,
+clipped to nominal dry friction. This diagnostic should not be substituted for
+the logged controller budget when comparing commands.
+
+### Evidence delivery
+
+Download `simulator-evidence-wet`, `simulator-evidence-wet_mild`, and
+`simulator-evidence-dry` from the validation run. Each experiment directory
+contains `manifest.json`, `summary.json`, three measured-motion CSVs and
+`comparison.png`. The dry artifact additionally contains the corrected baseline
+summary and plots. `synthetic-grip-evidence` contains the separate matched-model
+check. Original README images/video describe historical performance.
+
+
+## Final status
+
+All 50 tests and every completion gate passed in run 43207169981. The dry
+baseline reproduced Pure Pursuit at 57.85 s and the new constrained MPC at
+65.16 s. Dry adaptive mu RMSE was 0.01035. All nine comparison runs completed;
+there were no adaptive solver failures in any reported final trial.
+
+PR #1 was merged into main on 2026-11-12. This document records validation of
+source commit 3e3d02c9acd2c56d67623bae489f34d370dd4a4d, included in merge commit
+3e7db4dd59054f998b7387aa83f04f4cd8389488. Documentation changes do not change the
+validated controller implementation.

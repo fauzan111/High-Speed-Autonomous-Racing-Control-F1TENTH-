@@ -87,3 +87,12 @@ Sources:
 - [Single-track dynamics](https://github.com/f1tenth/f1tenth_gym/blob/5a301bd0ae1ceaf7dec653e7549c8d099db58a6b/f1tenth_gym/envs/dynamic_models.py)
 
 - [Map discovery and download helper](https://github.com/f1tenth/f1tenth_gym/blob/5a301bd0ae1ceaf7dec653e7549c8d099db58a6b/f1tenth_gym/envs/track/utils.py)
+
+
+## Cloud validation completed
+
+[Run 43207169981](https://github.com/fauzan111/High-Speed-Autonomous-Racing-Control-F1TENTH-/actions/runs/43207169981)
+installed the pinned simulator, prepared Spielberg, passed 50 tests with no skips,
+and completed the required dry/wet/mild-wet controller comparisons. This resolves
+the simulator validation gate, while the local DNS/dependency limitation above
+remains. Full source settings and measured results are in VALIDATION_RESULTS.md.

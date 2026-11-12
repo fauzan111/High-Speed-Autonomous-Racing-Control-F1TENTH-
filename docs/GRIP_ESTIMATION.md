@@ -60,7 +60,9 @@ Pirelli (Cyber Tyre), Brembo (Sensify), Ferrari, Dallara, Marelli, PoliMOVE.
 
 ## Implementation status (2026-11-11)
 
-Implementation and reproducible synthetic evidence are available; full simulator validation is pending.
+Implementation, synthetic evidence and full simulator validation are available.
+[Run 43207169981](https://github.com/fauzan111/High-Speed-Autonomous-Racing-Control-F1TENTH-/actions/runs/43207169981)
+passed 50 tests and all dry/wet completion gates. See [the results](VALIDATION_RESULTS.md).
 
 - `racer/estimation/online.py`: dynamic single-track augmented EKF using measured steering and yaw response, with speed/acceleration inputs, excitation gating and uncertainty.
 - `MPCController.set_grip`: runtime friction parameter, conservative margin, curvature-based speed cap, and cyclic braking/acceleration propagation. This retains separate lateral/longitudinal limits; it is not a full combined-force constraint.
@@ -83,7 +85,9 @@ After completing [environment setup](ENVIRONMENT.md):
 
 The experiment uses noise-free simulator motion and actual steering from the simulator vehicle state (the default observation omits it). True friction only enters simulator parameter updates and logs. Every comparison arm uses the same speed-profile adaptation logic; fixed-wet has prior knowledge of the chosen minimum friction and is a conservative reference. An adaptive estimate assumes current friction throughout its preview and receives no future wet-patch locations. Report first-lap and flying-lap behavior separately: repeated laps also test estimator memory.
 
-See [the implementation plan](IMPLEMENTATION_PLAN.md) for milestone acceptance gates. Historical README benchmark numbers have not been reproduced in this environment. No new lap-performance claims are made.
+See [the implementation plan](IMPLEMENTATION_PLAN.md) for milestone acceptance gates. The historical 47.22 s MPC lap was reproduced with the original kinematic model
+and disabled slack penalty as a diagnostic. The new constrained configuration
+uses the lower 0.70 speed cap; its results are reported separately.
 
 
 The automated `Grip estimation validation` workflow installs the pinned simulator,
@@ -109,8 +113,33 @@ xdot = v*cos(yaw + beta), ydot = v*sin(yaw + beta)
 
 Below 0.5 m/s it uses the original kinematic branch. The reference heading is
 converted from path tangent to body yaw using the same slip approximation. The
-lateral soft constraint uses `v*r`; runtime `mu` updates both model and limit.
+lateral soft constraint uses `v*r`. By default, the nominal `model_mu` in the
+prediction equations stays fixed across controllers; conservative `mu_used`
+updates the acceleration budget and speed caps. Experimental `adapt_dynamics=True`
+uses the un-margined `mu_hat` for the physical model. An uncertainty margin must
+never be interpreted as a point estimate of tyre cornering stiffness.
 This removes the original assumption that all measured steering immediately
 creates kinematic yaw, which conflicts with the simulator's tyre slip. Transient
 slip, acceleration load transfer and combined-force saturation are still omitted.
 `understeer_compensation=False` exists for historical diagnostics only.
+
+
+### Reference speed policy
+
+The same policy is used in every comparison arm: start with the dry racing-line
+speeds multiplied by the selected speed cap, scale the entire profile by
+`sqrt(mu_used / nominal_mu)`, cap curved sections using the lateral budget, then
+propagate braking/acceleration limits around the loop. Scaling even motor-limited
+straights is intentionally conservative. This is not a minimum-time solution;
+any adaptive advantage over fixed-wet partly reflects avoiding that uniform
+conservative slowdown. Current nominal dynamics remain fixed across all arms.
+
+
+### Final experiment settings
+
+The simulator harness defaults to `--excitation-g 0.05`, recorded in its manifest.
+The estimator class and synthetic benchmark retain 0.15g. This threshold is
+specific to linear-model parameter identification; weak noisy motion may still
+produce poor estimates and misleadingly small covariance. Runtime diagnostics
+report point estimates, uncertainty, excitation counts and wet-segment errors.
+See VALIDATION_RESULTS.md for the ablation and matching replay command.

@@ -1,8 +1,9 @@
 # Racer — High-Speed Autonomous Racing Control (F1TENTH)
 
-A simulated autonomous racing stack that drives a car around a track **at the
-limit of grip**, tracking a pre-optimized minimum-time racing line with Model
-Predictive Control.
+A simulated autonomous racing stack tracking a pre-optimized racing line with
+Model Predictive Control. The original high-speed benchmark is preserved below;
+the online grip-estimation extension uses a conservative, separately validated
+operating configuration.
 
 Inspired by **Politecnico di Milano's [PoliMOVE](https://polimove.deib.polimi.it/)**
 program — the team from PoliMI's AIDA lab that set the autonomous land-speed
@@ -51,8 +52,9 @@ The published benchmark above used a **kinematic bicycle model**. The grip
 extension keeps state `[x, y, ψ, v]` and input `[steering, acceleration]`, with RK4,
 and adds a **steady-state single-track approximation** for speed-dependent yaw
 response and body slip. This is an equilibrium correction, not full transient
-tyre dynamics. Runtime friction affects both this approximation and the lateral
-acceleration soft constraint. See [validation evidence](docs/VALIDATION_RESULTS.md)
+tyre dynamics. The nominal-friction approximation is fixed across comparison arms. Estimated
+friction adjusts the lateral-acceleration budget and reference speeds; it does
+not turn an uncertainty margin into a different predicted tyre stiffness. See [validation evidence](docs/VALIDATION_RESULTS.md)
 for the regression that motivated the change.
 
 ### Optimal control problem (solved every tick)
@@ -65,13 +67,15 @@ Minimize, over a horizon of N = 25 steps (`dt` = 0.1 s ≈ 2.5 s preview):
 
 subject to:
 
-- vehicle dynamics (RK4 kinematic bicycle),
+- vehicle dynamics (RK4 bicycle with steady-state yaw/slip correction),
 - steering / acceleration / speed bounds and steering-rate limits,
 - a **lateral-grip limit** on predicted acceleration (`|v·r_model| ≤ grip_frac·μg`,
-  soft-constrained), so the plan stays inside the tire grip envelope.
+  soft-constrained), encouraging the plan to respect a conservative cornering budget.
 
 Only the first input is applied; the problem is re-solved at the next tick
-(receding horizon). Solved with **CasADi + IPOPT** at ~9 ms/solve.
+(receding horizon). Solved with **CasADi + IPOPT**. The historical timing field
+averages controller cost over physics steps, including held commands; it is not
+mean latency per NLP solve. New experiment summaries label this explicitly.
 
 ### Engineering notes — the non-obvious failures
 Getting an MPC to lap at the limit surfaced several classic pitfalls, each fixed
@@ -168,7 +172,7 @@ python -m scripts.benchmark
 
 ## Online grip estimation
 
-The `feature/grip-estimation` branch adds a motion-based EKF, runtime MPC grip
+The grip-estimation upgrade adds a motion-based EKF, runtime MPC grip
 adaptation, measured-data replay, and a dry/wet experiment harness. See the
 [implementation plan](docs/IMPLEMENTATION_PLAN.md),
 [estimator status and limitations](docs/GRIP_ESTIMATION.md#implementation-status-2026-11-11),
@@ -190,7 +194,20 @@ then uploads evidence as artifacts.
 
 The checked-in [synthetic summary](results/synthetic_grip/summary.json) records
 steady wet-segment friction RMSE 0.0175 and wet settling time 1.91 s for seed 7.
-These are matched-model results; simulator integration and historical lap
-benchmarks still require reproduction. The simulator uses a linear tyre-response
-parameter, so results must not be presented as validated real-world peak-grip
-estimation.
+These are matched-model results, separate from the full simulator validation.
+[GitHub Actions validation](https://github.com/fauzan111/High-Speed-Autonomous-Racing-Control-F1TENTH-/actions/runs/43207169981)
+passed **50 tests** and every required dry/wet completion check:
+
+| Surface | Fixed-dry MPC | Fixed-wet MPC | Adaptive MPC |
+|---|---:|---:|---:|
+| Dry | 65.16 s | 86.58 s | 69.59 s |
+| Wet patch, mu=0.8 | 65.21 s | 74.76 s | 73.05 s |
+| Wet patch, mu=0.6 | 65.22 s | 86.61 s | 77.66 s |
+
+The extension uses a conservative **0.70 speed cap** and is slower than the
+original free-slack MPC. Adaptive MPC beats the uniformly conservative fixed-wet
+policy by 10.3% in the stronger-wet trial, but fixed-dry remains fastest and also
+finishes. These deterministic experiments do not establish a safety advantage.
+See [complete results, failed calibrations and limitations](docs/VALIDATION_RESULTS.md)
+for estimator errors, policy settings and artifact locations. The simulator uses
+a linear tyre-response parameter; this is not real-world peak-grip validation.

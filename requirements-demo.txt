@@ -1,0 +1,4 @@
+# CSV replay renderer only; no simulator, CasADi or map download required.
+numpy>=1.24
+matplotlib>=3.7
+imageio-ffmpeg>=0.5

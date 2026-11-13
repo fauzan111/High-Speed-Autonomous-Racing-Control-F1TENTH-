@@ -1,0 +1,53 @@
+name: Adaptive driving demo
+on:
+  push:
+    branches: [feature/adaptive-driving-demo]
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: Successful grip-validation run containing simulator-evidence-wet
+        default: '43207169981'
+        required: true
+        type: string
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: adaptive-demo-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      MPLBACKEND: Agg
+      OPENBLAS_NUM_THREADS: '1'
+      OMP_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - run: python -m pip install -r requirements-demo.txt pytest
+      - name: Test CSV selection, telemetry validation and real H.264 encoding
+        run: python -m pytest tests/test_record_grip.py -q
+      - uses: actions/download-artifact@v4
+        with:
+          name: simulator-evidence-wet
+          path: demo-source
+          run-id: ${{ inputs.source_run_id || '43207169981' }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Render validated first encounter at 2x playback
+        run: python -m scripts.record_grip demo-source/grip_wet/adaptive.csv --out results/adaptive-demo/adaptive-driving.mp4
+      - name: Preserve source evidence alongside the video
+        run: |
+          cp demo-source/grip_wet/adaptive.csv results/adaptive-demo/
+          cp demo-source/grip_wet/manifest.json results/adaptive-demo/experiment-manifest.json
+          cp demo-source/grip_wet/summary.json results/adaptive-demo/experiment-summary.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: adaptive-driving-demo
+          path: results/adaptive-demo/
+          if-no-files-found: error

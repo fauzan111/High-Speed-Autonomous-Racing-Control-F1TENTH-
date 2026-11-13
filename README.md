@@ -211,3 +211,11 @@ finishes. These deterministic experiments do not establish a safety advantage.
 See [complete results, failed calibrations and limitations](docs/VALIDATION_RESULTS.md)
 for estimator errors, policy settings and artifact locations. The simulator uses
 a linear tyre-response parameter; this is not real-world peak-grip validation.
+
+### Adaptive-driving video
+
+The [CSV replay renderer](docs/ADAPTIVE_DEMO.md) creates an H.264 video of the
+first encounter lap with synchronized position, speed, true/estimated friction,
+controller budget and uncertainty. It uses recorded telemetry without rerunning
+the simulator. The **Adaptive driving demo** Actions workflow renders the
+validated wet-run logs and uploads the video, preview and provenance metadata.

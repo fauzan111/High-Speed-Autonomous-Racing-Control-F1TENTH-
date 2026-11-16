@@ -1,0 +1,91 @@
+name: Grip sensor-noise robustness
+on:
+  push:
+    branches: [feature/grip-sensor-noise-study]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: grip-robustness-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  paired-trials:
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        include:
+          - scenario: dry
+            surface: dry
+            wet_mu: 0.6
+            seed: 11
+          - scenario: dry
+            surface: dry
+            wet_mu: 0.6
+            seed: 23
+          - scenario: dry
+            surface: dry
+            wet_mu: 0.6
+            seed: 47
+          - scenario: mild-wet
+            surface: wet
+            wet_mu: 0.8
+            seed: 11
+          - scenario: mild-wet
+            surface: wet
+            wet_mu: 0.8
+            seed: 23
+          - scenario: mild-wet
+            surface: wet
+            wet_mu: 0.8
+            seed: 47
+          - scenario: wet
+            surface: wet
+            wet_mu: 0.6
+            seed: 11
+          - scenario: wet
+            surface: wet
+            wet_mu: 0.6
+            seed: 23
+          - scenario: wet
+            surface: wet
+            wet_mu: 0.6
+            seed: 47
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      MPLBACKEND: Agg
+      SDL_VIDEODRIVER: dummy
+      OMP_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install pinned simulator and project
+        run: |
+          git clone --branch v1.0.0 --depth 1 https://github.com/f1tenth/f1tenth_gym.git
+          git -C f1tenth_gym checkout 5a301bd0ae1ceaf7dec653e7549c8d099db58a6b
+          python -m pip install -e ./f1tenth_gym -r requirements.txt -r requirements-dev.txt
+      - run: python -m scripts.prepare_map --map Spielberg
+      - run: python -m scripts.check_environment
+      - name: Paired controller comparison (${{ matrix.scenario }}, seed ${{ matrix.seed }})
+        run: >-
+          python -m scripts.grip_experiment
+          --surface ${{ matrix.surface }}
+          --wet-mu ${{ matrix.wet_mu }}
+          --seed ${{ matrix.seed }}
+          --position-noise-m 0.01
+          --heading-noise-rad 0.005
+          --speed-noise-mps 0.03
+          --yaw-rate-noise-rad-s 0.02
+          --steering-noise-rad 0.002
+          --out results/robustness/${{ matrix.scenario }}/seed_${{ matrix.seed }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: grip-robustness-${{ matrix.scenario }}-seed-${{ matrix.seed }}
+          path: results/robustness/${{ matrix.scenario }}/seed_${{ matrix.seed }}
+          if-no-files-found: warn

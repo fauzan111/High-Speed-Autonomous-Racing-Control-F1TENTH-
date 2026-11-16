@@ -23,6 +23,23 @@ from .estimation.grip import GripSchedule
 from .estimation.online import GripEstimator
 
 
+@dataclass(frozen=True)
+class ObservationNoise:
+    """Independent zero-mean Gaussian sensor noise applied to controller inputs."""
+
+    position_std_m: float = 0.0
+    heading_std_rad: float = 0.0
+    speed_std_mps: float = 0.0
+    yaw_rate_std_rad_s: float = 0.0
+    steering_std_rad: float = 0.0
+
+    def __post_init__(self):
+        values = (self.position_std_m, self.heading_std_rad, self.speed_std_mps,
+                  self.yaw_rate_std_rad_s, self.steering_std_rad)
+        if any(not np.isfinite(value) or value < 0 for value in values):
+            raise ValueError("observation-noise standard deviations must be finite and nonnegative")
+
+
 @dataclass
 class RunResult:
     controller: str
@@ -61,8 +78,10 @@ def run_episode(
     max_sim_time: float = 120.0,
     grip_schedule: GripSchedule | None = None,
     grip_estimator: GripEstimator | None = None,
+    observation_noise: ObservationNoise | None = None,
+    observation_seed: int = 0,
 ) -> RunResult:
-    """Run one episode (until 2 finish-line crossings, crash, or timeout)."""
+    """Run one episode; noise affects controller/estimator inputs, not truth or scoring."""
     raceline = Raceline.load(map_name)
     render_mode = "human" if render else None
     env = gym.make(
@@ -79,8 +98,11 @@ def run_episode(
             if not callable(getattr(controller, "set_grip", None)):
                 raise ValueError("adaptive grip requires a controller with set_grip")
             grip_estimator.reset()
+        noise = observation_noise or ObservationNoise()
+        rng = np.random.default_rng(observation_seed)
         grip_log = []
-        previous_speed = None
+        previous_observed_speed = None
+        previous_true_speed = None
         previous_steering = None
         # v1.0.0's original observation omits actual steering. Read its vehicle
         # state explicitly rather than substituting the steering command.
@@ -106,7 +128,7 @@ def run_episode(
         completed = False
 
         for step in range(max_steps):
-            st = CarState(
+            truth = CarState(
                 x=float(obs["poses_x"][0]),
                 y=float(obs["poses_y"][0]),
                 yaw=float(obs["poses_theta"][0]),
@@ -114,26 +136,41 @@ def run_episode(
                 yaw_rate=float(obs["ang_vels_z"][0]),
             )
 
-            progress = raceline.progress(st.x, st.y)
+            # Draw every sensor channel on every step so paired controller runs
+            # with the same seed receive the same observation-noise sequence.
+            noise_sample = rng.normal(0.0, [noise.position_std_m, noise.position_std_m,
+                                             noise.heading_std_rad, noise.speed_std_mps,
+                                             noise.yaw_rate_std_rad_s, noise.steering_std_rad])
+            st = CarState(
+                x=truth.x + float(noise_sample[0]),
+                y=truth.y + float(noise_sample[1]),
+                yaw=truth.yaw + float(noise_sample[2]),
+                v=truth.v + float(noise_sample[3]),
+                yaw_rate=truth.yaw_rate + float(noise_sample[4]),
+            )
+
+            progress = raceline.progress(truth.x, truth.y)
             adaptive_t0 = time.perf_counter()
             true_mu = (grip_schedule.mu_at(progress) if grip_schedule else base_params.get("mu"))
             if grip_enabled and applied_mu != true_mu:
                 env.unwrapped.update_params(dict(base_params, mu=true_mu), index=0)
                 applied_mu = true_mu
             actual_steering = float(agent.state[2]) if agent is not None else 0.0
-            acceleration = 0.0 if previous_speed is None else (st.v - previous_speed) / dt
-            interval_speed = st.v if previous_speed is None else (previous_speed + st.v) / 2
-            previous_speed = st.v
+            observed_steering = actual_steering + float(noise_sample[5])
+            acceleration = (0.0 if previous_observed_speed is None else
+                            (st.v - previous_observed_speed) / dt)
+            interval_speed = (st.v if previous_observed_speed is None else
+                              (previous_observed_speed + st.v) / 2)
             estimate = None
             if grip_estimator is not None:
                 estimate = grip_estimator.update(
-                    speed=interval_speed, steering=(actual_steering if previous_steering is None else
-                                        (previous_steering + actual_steering) / 2), yaw_rate=st.yaw_rate,
+                    speed=interval_speed, steering=(observed_steering if previous_steering is None else
+                                        (previous_steering + observed_steering) / 2), yaw_rate=st.yaw_rate,
                     dt=dt, acceleration=acceleration,
                 )
                 controller.set_grip(estimate.mu_hat, estimate.sigma)
 
-            previous_steering = actual_steering
+            previous_steering = observed_steering
 
             steering, speed = controller(st)
             # Amortized control cost per physics step, including estimator work.
@@ -141,18 +178,26 @@ def run_episode(
 
             if grip_enabled:
                 grip_log.append(dict(
-                    time=step * dt, progress=progress, lap=len(wrap_times), speed=st.v, x=st.x, y=st.y,
-                    cross_track=float(np.hypot(st.x - raceline.x[raceline.nearest_index(st.x, st.y)],
-                                              st.y - raceline.y[raceline.nearest_index(st.x, st.y)])),
+                    time=step * dt, progress=progress, lap=len(wrap_times), speed=st.v,
+                    x=truth.x, y=truth.y,
+                    cross_track=float(np.hypot(truth.x - raceline.x[raceline.nearest_index(truth.x, truth.y)],
+                                              truth.y - raceline.y[raceline.nearest_index(truth.x, truth.y)])),
                     adaptive_compute_ms=(time.perf_counter() - adaptive_t0) * 1e3,
-                    steering=actual_steering, yaw_rate=st.yaw_rate,
+                    steering=observed_steering, yaw_rate=st.yaw_rate,
                     acceleration=acceleration, true_mu=true_mu,
+                    observed_x=st.x, observed_y=st.y, true_speed=truth.v,
+                    true_steering=actual_steering, true_yaw_rate=truth.yaw_rate,
+                    true_acceleration=(0.0 if previous_true_speed is None else
+                                       (truth.v - previous_true_speed) / dt),
                     command_steering=float(steering), command_speed=float(speed),
                     excited=estimate.excited if estimate else None,
                     mu_hat=estimate.mu_hat if estimate else None,
                     sigma=estimate.sigma if estimate else None,
                     mu_used=getattr(controller, "mu_used", None),
                 ))
+
+            previous_observed_speed = st.v
+            previous_true_speed = truth.v
 
             action = np.array([[steering, speed]], dtype=np.float32)
             obs, reward, terminated, truncated, info = env.step(action)
@@ -162,13 +207,13 @@ def run_episode(
 
             # logging
             sim_t = step * dt
-            xs.append(st.x)
-            ys.append(st.y)
-            vs.append(st.v)
+            xs.append(truth.x)
+            ys.append(truth.y)
+            vs.append(truth.v)
             ts.append(sim_t)
             # cross-track error vs nearest raceline point
-            idx = raceline.nearest_index(st.x, st.y)
-            ctes.append(np.hypot(st.x - raceline.x[idx], st.y - raceline.y[idx]))
+            idx = raceline.nearest_index(truth.x, truth.y)
+            ctes.append(np.hypot(truth.x - raceline.x[idx], truth.y - raceline.y[idx]))
 
             # lap timing via arc-length progress wrap (s jumps from ~length to ~0)
             # Use the post-step position: a terminal step may cross the finish.

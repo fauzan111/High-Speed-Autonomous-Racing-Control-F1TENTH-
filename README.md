@@ -219,3 +219,6 @@ first encounter lap with synchronized position, speed, true/estimated friction,
 controller budget and uncertainty. It uses recorded telemetry without rerunning
 the simulator. The **Adaptive driving demo** Actions workflow renders the
 validated wet-run logs and uploads the video, preview and provenance metadata.
+The next evidence step is a separate seeded sensor-noise pilot; see the
+[robustness study protocol](docs/ROBUSTNESS_STUDY.md) and its manually triggered
+Actions workflow.

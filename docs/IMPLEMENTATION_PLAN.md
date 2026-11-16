@@ -49,7 +49,7 @@ Started 2026-11-11; completion pass 2026-11-12. All four agent slots contributed
 - Validation: 50 tests passed in GitHub Actions, including real IPOPT solves; all dry, wet (mu=0.6) and mild-wet (mu=0.8) completion gates passed. Local NumPy tests also pass (27); CasADi remains absent locally.
 - Completed evidence: pinned map bootstrap, historical 47.22 s diagnostic reproduction, corrected conservative baseline, all nine comparison runs, CSV logs, JSON summaries/manifests, and comparison plots. See VALIDATION_RESULTS.md and run 43207169981.
 - Environment constraint: local shell DNS still cannot resolve GitHub/PyPI; full simulation validation ran in GitHub Actions instead.
-- Remaining research: transient tyre-model MPC, calibrated uncertainty, noise/track robustness studies, a learned estimator, and an adaptive video. These are beyond the completed first EKF-to-MPC deliverable; the original demo remains historical.
+- Remaining research: transient tyre-model MPC, calibrated uncertainty, broader noise/track robustness, and a learned estimator. The adaptive-driving video is complete and documented in ADAPTIVE_DEMO.md.
 - Scope finding: upstream friction scales a linear tyre response without nonlinear saturation; realistic peak-friction validation requires a more appropriate tyre model after this first experiment.
 
 
@@ -66,3 +66,12 @@ The first EKF-to-MPC deliverable is implemented and validated in the declared
 simulator scenarios. Adaptive MPC improves on the fixed-wet policy in both wet
 trials, while fixed-dry remains faster and completes both. This is not evidence
 of a general safety advantage or realistic peak-friction estimation.
+
+## Follow-up: seeded sensor-noise pilot
+
+Started 2026-11-16. The runner now has optional seeded Gaussian perturbations
+for controller/estimator inputs, while retaining clean simulator truth for
+friction scheduling and scoring. A manually triggered nine-trial matrix covers
+three seeds and dry, mild-wet and wet schedules. Noise levels are declared
+simulation assumptions, not measurements from a physical car. Results remain
+pending; see [ROBUSTNESS_STUDY.md](ROBUSTNESS_STUDY.md).

@@ -152,3 +152,8 @@ PR #1 was merged into main on 2026-11-12. This document records validation of
 source commit 3e3d02c9acd2c56d67623bae489f34d370dd4a4d, included in merge commit
 3e7db4dd59054f998b7387aa83f04f4cd8389488. Documentation changes do not change the
 validated controller implementation.
+
+The adaptive-driving replay was added in PR #2 and its merge-triggered
+validation workflow completed successfully on 2026-11-13. A separate seeded
+sensor-noise robustness pilot is being prepared; its results are not included
+in the noise-free comparisons above. See [ROBUSTNESS_STUDY.md](ROBUSTNESS_STUDY.md).

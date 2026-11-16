@@ -20,7 +20,7 @@ from racer.controllers.mpc import MPCController
 from racer.estimation.grip import GripSchedule, dry_to_wet
 from racer.estimation.online import GripEstimator
 from racer.raceline import Raceline
-from racer.runner import run_episode
+from racer.runner import ObservationNoise, run_episode
 
 
 def revision(path):
@@ -40,8 +40,29 @@ def main():
                         help="simulator linear-parameter excitation gate; not real peak-grip observability")
     parser.add_argument("--speed-cap", type=float, default=0.7)
     parser.add_argument("--slack-weight", type=float, default=1000.0)
+    parser.add_argument("--seed", type=int, default=0,
+                        help="seed for paired sensor-noise draws across controller variants")
+    parser.add_argument("--position-noise-m", type=float, default=0.0,
+                        help="per-axis Gaussian position noise standard deviation [m]")
+    parser.add_argument("--heading-noise-rad", type=float, default=0.0,
+                        help="Gaussian heading noise standard deviation [rad]")
+    parser.add_argument("--speed-noise-mps", type=float, default=0.0,
+                        help="Gaussian speed noise standard deviation [m/s]")
+    parser.add_argument("--yaw-rate-noise-rad-s", type=float, default=0.0,
+                        help="Gaussian yaw-rate noise standard deviation [rad/s]")
+    parser.add_argument("--steering-noise-rad", type=float, default=0.0,
+                        help="Gaussian measured-steering noise standard deviation [rad]")
     parser.add_argument("--out", type=Path, default=Path("results/grip_experiment"))
     args = parser.parse_args()
+    observation_noise = ObservationNoise(
+        position_std_m=args.position_noise_m,
+        heading_std_rad=args.heading_noise_rad,
+        speed_std_mps=args.speed_noise_mps,
+        yaw_rate_std_rad_s=args.yaw_rate_noise_rad_s,
+        steering_std_rad=args.steering_noise_rad,
+    )
+    noise_settings = asdict(observation_noise)
+    noise_enabled = any(value > 0 for value in noise_settings.values())
     rl = Raceline.load(args.map)
     dry_mu = config.VehicleParams().mu
     if not 0.1 <= args.wet_mu <= dry_mu:
@@ -55,8 +76,14 @@ def main():
                     project_revision=revision(config.REPO_ROOT),
                     simulator_revision=revision(config.GYM_ROOT),
                     configuration={**vars(args), "out": str(args.out)},
-                    observation="noise-free simulator motion; measured state steering",
-                    interpretation="single deterministic demonstration, not a robustness study",
+                    observation=("controller and estimator receive simulator state with seeded independent Gaussian sensor noise"
+                                 if noise_enabled else "noise-free simulator state"),
+                    pairing=("each controller variant uses the same seed and sensor-channel draw order"
+                             if noise_enabled else "same initial conditions and deterministic simulator setup"),
+                    seed=args.seed,
+                    sensor_noise_std=noise_settings,
+                    interpretation=("one seeded noise trial; aggregate multiple seeds before making robustness claims"
+                                    if noise_enabled else "deterministic noise-free comparison"),
                     dependencies={})
     for name in ["numpy", "casadi", "gymnasium", "f1tenth_gym"]:
         try:
@@ -71,7 +98,9 @@ def main():
         controller.set_grip(args.wet_mu if name == "fixed_wet" else dry_mu, sigma=0.0)
         estimator = GripEstimator(excitation_g=args.excitation_g) if name == "adaptive" else None
         result = run_episode(controller, map_name=args.map, max_sim_time=args.max_time,
-                             grip_schedule=schedule, grip_estimator=estimator)
+                             grip_schedule=schedule, grip_estimator=estimator,
+                             observation_noise=observation_noise,
+                             observation_seed=args.seed)
         print(name, result.summary(), flush=True)
         summary = {k: v for k, v in asdict(result).items()
                    if k not in {"xs", "ys", "vs", "ts", "grip_log"}}

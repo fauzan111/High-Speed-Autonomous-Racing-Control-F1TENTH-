@@ -71,7 +71,8 @@ of a general safety advantage or realistic peak-friction estimation.
 
 Started 2026-11-16. The runner now has optional seeded Gaussian perturbations
 for controller/estimator inputs, while retaining clean simulator truth for
-friction scheduling and scoring. A manually triggered nine-trial matrix covers
-three seeds and dry, mild-wet and wet schedules. Noise levels are declared
-simulation assumptions, not measurements from a physical car. Results remain
-pending; see [ROBUSTNESS_STUDY.md](ROBUSTNESS_STUDY.md).
+friction scheduling and scoring. The initial nine-trial matrix covers three
+seeds and dry, mild-wet and wet schedules; results are documented in
+[ROBUSTNESS_STUDY.md](ROBUSTNESS_STUDY.md). Noise levels are declared simulation
+assumptions, not measurements from a physical car. Broader robustness work
+remains open.

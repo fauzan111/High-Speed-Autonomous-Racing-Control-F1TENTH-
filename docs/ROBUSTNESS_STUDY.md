@@ -64,6 +64,33 @@ study branch starts the pilot automatically; after merge, it can also be started
 from the Actions tab on `main`. Artifacts contain each trial's `manifest.json`,
 `summary.json`, CSV logs and comparison plot.
 
+## Initial pilot results
+
+[Run 43843819827](https://github.com/fauzan111/High-Speed-Autonomous-Racing-Control-F1TENTH-/actions/runs/43843819827)
+completed all nine seed/condition jobs. The table reports mean flying-lap time
+among finishers; ranges show the three seed outcomes (or the two fixed-dry
+finishers in mild-wet). The fixed-dry mild-wet crash remains in the completion
+count and is not assigned a lap time.
+
+| Condition | Fixed-dry MPC | Fixed-wet MPC | Adaptive MPC | Adaptive first-lap wet mu RMSE |
+| --- | ---: | ---: | ---: | ---: |
+| Dry | 3/3, 65.32 s (65.30–65.34) | 3/3, 86.46 s (86.44–86.48) | 3/3, 70.52 s (70.26–70.73) | — |
+| Mild-wet, mu=0.8 | 2/3, 65.35 s (65.34–65.35) | 3/3, 74.81 s (74.80–74.82) | 3/3, 74.10 s (73.94–74.32) | 0.0516 |
+| Wet, mu=0.6 | 3/3, 65.38 s (65.37–65.39) | 3/3, 86.46 s (86.44–86.49) | 3/3, 79.02 s (78.46–79.40) | 0.0570 |
+
+All adaptive runs and all fixed-wet runs completed without solver failures. One
+fixed-dry mild-wet run crashed at 72.35 s; the other two completed. Adaptive was
+faster than fixed-wet on average in both wet conditions, but fixed-dry was still
+faster on every completed wet-condition run. This small pilot suggests sensor
+noise can change completion outcomes, but does not show that adaptation is
+generally safer or faster. It uses the simulator's linear tyre-response model
+and the declared synthetic noise assumptions above.
+
+The previous single noise-free trials completed fixed-dry in 65.16/65.21/65.22 s
+and adaptive in 69.59/73.05/77.66 s for dry/mild-wet/wet. They are context, not
+repeated-seed controls. The per-seed manifests, summaries, CSVs and plots are in
+the workflow run artifacts linked above.
+
 ## Interpretation
 
 The noise model is independent white Gaussian noise. It does not model sensor
